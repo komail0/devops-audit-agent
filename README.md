@@ -37,6 +37,17 @@ Configuration is read from `.env` (never committed):
 
 - `devops_agent/repo.py`: validates GitHub URLs and clones the target into a throwaway temp folder, with git hooks, submodules, LFS downloads, the file protocol and credential prompts disabled, and a clone timeout. The folder is deleted afterwards.
 - `devops_agent/redact.py`: replaces secret values (known token formats, private keys, credential assignments, URL passwords) with `[REDACTED:<type>]` markers. It is meant to run on all tool output, logs and report text.
+- `tools.py`: read-only inspection tools bound to the cloned repository, with JSON schemas (`TOOL_SPECS`) for LLM tool calling. Tools return plain-text observations, never raise, and apply redaction and size caps to all output.
+
+  | Tool | Purpose |
+  |---|---|
+  | `list_files(path, max_depth)` | Repository structure with file sizes; skips `.git` |
+  | `read_file(path, start_line, end_line)` | Line-numbered file contents, 400 lines per call; refuses binary files |
+  | `search_code(pattern, path_glob, case_insensitive)` | Regex search returning `path:line: text`, max 100 matches |
+  | `git_log(max_count, path, show_files)` | Recent commits; notes when history is shallow |
+  | `git_status()` | Tracked files matching common generated, temporary or sensitive patterns, and whether a root `.gitignore` exists |
+
+  Paths are confined to the repository: absolute paths, `..`, `.git` and symlinks are rejected. Tools report facts only; deciding what is a violation is left to the agent.
 
 ## Tests
 
