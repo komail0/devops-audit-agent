@@ -311,6 +311,23 @@ class Toolbox:
                 if not file_path.is_symlink():
                     yield file_path, depth
 
+    def overview(self) -> str:
+        """Short orientation for the first message: file count, common extensions, top-level entries.
+
+        This is not an LLM-callable tool; it just saves the agent a wasted opening call.
+        """
+        counts: Dict[str, int] = {}
+        total = 0
+        for file_path, _ in self._walk_files(self.root):
+            total += 1
+            key = file_path.suffix.lower() or file_path.name
+            counts[key] = counts.get(key, 0) + 1
+        common = ", ".join(f"{k} ({v})" for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8])
+        top = sorted(
+            f"{p.name}/" if p.is_dir() else p.name for p in self.root.iterdir() if p.name != ".git" and not p.is_symlink()
+        )
+        return f"{total} file(s). Most common: {common or 'none'}.\nTop level: {', '.join(top[:40]) or '(empty)'}"
+
     # ---- tools ------------------------------------------------------------
 
     def list_files(self, path: str = "", max_depth: Optional[int] = None) -> str:

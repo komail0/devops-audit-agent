@@ -41,6 +41,15 @@ Configuration is read from `.env` (never committed):
 - `devops_agent/redact.py`: replaces secret values (known token formats, private keys, credential assignments, URL passwords) with `[REDACTED:<type>]` markers. It is meant to run on all tool output, logs and report text. Quoted literals and unquoted secret-looking values are redacted, while code such as `password = get_password(x)` is left readable so evidence is not mangled. Limitation: an unquoted lowercase snake_case secret is indistinguishable from a variable name and is not redacted.
 - `devops_agent/config.py`: loads and validates the settings above; a missing required variable fails with a message naming it.
 - `devops_agent/llm.py`: thin client for any OpenAI-compatible chat API with tool calling. It sends messages, parses tool calls (tolerating malformed argument JSON), retries rate-limit, timeout, connection and 5xx errors with backoff, and fails fast on authentication or bad-request errors. It echoes provider-specific tool-call metadata (such as Gemini thought signatures) back unchanged, as those APIs require. It makes no decisions about which tools to call.
+- `devops_agent/agent_loop.py`: the agent loop. The LLM chooses every tool call from the observations so far and ends the audit by calling `submit_report`. The loop executes calls, labels each result `[step N]` so findings can cite their evidence, and returns tool errors as observations so the model can recover. It also handles:
+  - plain-text replies (nudged to call a tool, never accepted as a report)
+  - malformed arguments
+  - duplicate calls
+  - at most 8 calls per turn
+  - compaction of old tool output
+  - a step cap (`AGENT_MAX_STEPS` counts LLM turns) and a wall-clock timeout; when either is reached it asks once for a final report from the evidence gathered, and raises an error rather than inventing one if none comes
+- `devops_agent/schema.py`: severity and category vocabulary and the `submit_report` tool definition.
+- `devops_agent/trace.py`: redacted record of every assistant note and tool call, for auditing a run.
 - `tools.py`: read-only inspection tools bound to the cloned repository, with JSON schemas (`TOOL_SPECS`) for LLM tool calling. Tools return plain-text observations, never raise, and apply redaction and size caps to all output.
 
   | Tool | Purpose |
