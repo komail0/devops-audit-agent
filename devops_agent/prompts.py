@@ -68,7 +68,9 @@ versions, so it is not a missing lockfile. If tests run through \
 credentials under tests/ or fixtures/.
 - Anything you could not verify because a tool failed or output was truncated.
 - Style preferences, commit message style, vendored or generated code.
-- Duplicates: one finding per distinct defect; the same kind of defect in different files is separate findings.
+- Duplicates: one finding per distinct defect and location. The same kind of defect in different files, or in \
+different steps of a workflow (for example one step with `|| true` and another with `continue-on-error`), is a \
+separate finding each with its own line. Do not merge them, and do not report one defect twice.
 A mostly healthy repository should produce few or no findings. An empty list is a valid, expected result.
 
 ## Evidence
@@ -85,21 +87,28 @@ pull_request_target running untrusted pull request code with secrets). high: a s
 protection (checks that can never fail, broad write permissions on untrusted triggers, script injection, deploy \
 without any gate). medium: reliability or reproducibility (no lockfile for an app, unpinned actions, tests not run in \
 CI, inconsistent dependency specs, machine-specific paths). low: hygiene and documentation gaps.
+Do not mark everything high: a missing .gitignore or a tracked cache file is low, an unpinned action is medium.
 
 ## Fields
-Severity values: {severities}. Category values: {categories}. Rule ids (or PREFIX-099 for another genuine violation \
-of that category):
-HYG-001 missing README; HYG-002 missing/unsuitable .gitignore; HYG-003 tracked generated/temporary/local files.
-DEP-001 inconsistent specs; DEP-002 loose dependencies with no lockfile; DEP-003 unpinned/weak constraints.
-QUAL-001 no linting/formatting; QUAL-002 maintainability problem.
-TEST-001 no tests; TEST-002 tests not run in CI; TEST-003 tests disabled/skipped.
-CI-001 incorrect triggers; CI-002 ineffective gate; CI-003 skipped validation; CI-004 unpinned actions.
-SEC-001 hardcoded credential; SEC-002 unsafe workflow permissions; SEC-003 script injection; SEC-004 \
-pull_request_target with untrusted checkout; SEC-005 private key/credential file committed; SEC-006 insecure \
-configuration.
-CFG-001 machine-specific paths; CFG-002 committed local settings/env files; CFG-003 poor environment separation.
-COLLAB-001 unsafe PR automation; COLLAB-002 missing review guidance.
-BUILD-001 build never validated in CI; BUILD-002 risky release/deploy automation.
+Severity values: {severities}. Category values: {categories}. Rule ids with their default severity in brackets; \
+keep the default unless the evidence clearly justifies raising or lowering it. Use PREFIX-099 for another genuine \
+violation of a category.
+HYG-001 missing README [low]; HYG-002 missing/unsuitable .gitignore [low]; HYG-003 tracked generated/temporary/local \
+files [low].
+DEP-001 inconsistent specs [medium]; DEP-002 loose dependencies with no lockfile [medium]; DEP-003 unpinned/weak \
+constraints [medium].
+QUAL-001 no linting/formatting [low]; QUAL-002 maintainability problem [low].
+TEST-001 no tests [medium]; TEST-002 tests not run in CI [medium]; TEST-003 tests disabled/skipped [medium].
+CI-001 incorrect triggers [medium]; CI-002 ineffective gate [high]; CI-003 skipped validation [medium]; \
+CI-004 unpinned actions [medium for a branch ref, low for a version tag].
+SEC-001 hardcoded credential [high, critical if it looks like a live cloud or API key]; SEC-002 unsafe workflow \
+permissions [medium, high with write access on untrusted triggers]; SEC-003 script injection [high]; \
+SEC-004 pull_request_target with untrusted checkout [critical]; SEC-005 private key or credential file committed \
+[high]; SEC-006 insecure configuration [medium].
+CFG-001 machine-specific paths [medium]; CFG-002 committed local settings/env files [medium]; CFG-003 poor \
+environment separation [low].
+COLLAB-001 unsafe PR automation [high]; COLLAB-002 missing review guidance [low].
+BUILD-001 build never validated in CI [medium]; BUILD-002 risky release/deploy automation [high].
 """
 
 

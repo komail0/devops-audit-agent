@@ -63,3 +63,17 @@ def test_prompt_treats_visible_literal_secrets_as_confirmed_and_asks_for_a_final
 def test_prompt_does_not_call_fully_pinned_requirements_a_missing_lockfile(prompt):
     assert "all pinned with `==`" in prompt and "not a missing lockfile" in prompt
     assert "no lockfile for an application" not in prompt
+
+
+def test_prompt_calibrates_severity_per_rule_and_warns_against_marking_everything_high(prompt):
+    assert "Do not mark everything high" in prompt
+    for rule, severity in (("HYG-003", "low"), ("CI-002", "high"), ("SEC-004", "critical"), ("CFG-001", "medium")):
+        assert re.search(rf"{rule}[^;\[]*\[{severity}", prompt), rule
+
+
+def test_prompt_asks_for_separate_findings_per_location(prompt):
+    assert "separate finding each with its own line" in prompt
+
+
+def test_prompt_stays_compact_for_small_token_quotas(prompt):
+    assert len(prompt) < 11_500  # roughly 2,900 tokens; it is sent with every request
