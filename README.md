@@ -4,13 +4,26 @@ An AI agent that inspects a public GitHub repository, finds DevOps best-practice
 
 Agent cycle: Observe → Reason → Select Tool → Execute Tool → Interpret Results → Report.
 
-**Status:** work in progress. The CLI, inspection tools and agent loop are not implemented yet, so the audit command below does not run yet.
+**Status:** the agent is implemented end to end. It has been exercised against a live model only partially so far (see Limitations), and `sample_report.json` has not been generated yet.
 
-## Planned usage
+## Usage
 
 ```
-python agent.py --repo <github_repository_url> --output report.json
+python agent.py --repo https://github.com/<owner>/<name> --output report.json
 ```
+
+Optional flags: `--max-steps N` (maximum LLM turns), `--timeout SECONDS`, `--trace trace.json` (write the redacted tool-call trace, also on failed runs), `--verbose` (print each tool call to stderr as it happens). The command never prompts and never reads stdin. Progress goes to stderr; the result is the JSON file.
+
+Output format: `{"repository": "...", "violations": [...]}`. Each violation has `rule_id`, `category`, `severity` (`critical`, `high`, `medium`, `low`), `file`, `line` (both may be `null`), `description`, `evidence` and `recommendation`. An empty `violations` array means nothing defensible was found. Categories: `hygiene`, `dependencies`, `code_quality`, `testing`, `ci`, `security`, `configuration`, `collaboration`, `build`.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Report written (possibly with no violations) |
+| 2 | Invalid arguments, repository URL, output path or configuration |
+| 3 | Clone failed (not found, private, network, timeout) |
+| 4 | LLM failure (unreachable, rejected, quota exhausted), or the agent could not produce a report. No report file is written and any existing one is left untouched |
+| 1 | Unexpected internal error |
+| 130 | Interrupted |
 
 ## Setup
 
@@ -74,6 +87,13 @@ Configuration is read from `.env` (never committed):
   | `parse_workflow(path)` | Parses a GitHub Actions workflow with `yaml.safe_load` into triggers, permissions, jobs, steps and action pinning, plus factual observations (`continue-on-error`, `\|\| true`, `pull_request_target`, event data interpolated into scripts, secrets referenced, test/lint/build commands found by keyword) |
 
   Paths are confined to the repository: absolute paths, `..`, `.git` and symlinks are rejected. Tools report facts only; deciding what is a violation is left to the agent.
+
+## Limitations
+
+- Static inspection only. Target code is never executed, so failing tests cannot be detected; `run_pytest` and `run_ruff` are intentionally not implemented.
+- Remote repository settings (branch protection, required reviews, secret scanning) are not visible from the files and are never inferred.
+- Results depend on the model's tool-calling quality. Free API tiers can have very small daily quotas (for example 20 requests per day per model on one provider), which a full audit can exhaust; the agent then exits with code 4 instead of guessing. Set `LLM_MIN_INTERVAL_SECONDS` for per-minute limits.
+- Clones are shallow (last 100 commits), so `git_log` may not show older history.
 
 ## Tests
 
