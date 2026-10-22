@@ -46,6 +46,7 @@ Configuration is read from `.env` (never committed):
   | `search_code(pattern, path_glob, case_insensitive)` | Regex search returning `path:line: text`, max 100 matches |
   | `git_log(max_count, path, show_files)` | Recent commits; notes when history is shallow |
   | `git_status()` | Tracked files matching common generated, temporary or sensitive patterns, and whether a root `.gitignore` exists |
+  | `parse_workflow(path)` | Parses a GitHub Actions workflow with `yaml.safe_load` into triggers, permissions, jobs, steps and action pinning, plus factual observations (`continue-on-error`, `\|\| true`, `pull_request_target`, event data interpolated into scripts, secrets referenced, test/lint/build commands found by keyword) |
 
   Paths are confined to the repository: absolute paths, `..`, `.git` and symlinks are rejected. Tools report facts only; deciding what is a violation is left to the agent.
 

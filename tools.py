@@ -15,6 +15,8 @@ import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, List, Optional
 
+import yaml
+
 from devops_agent.redact import redact
 
 MAX_LIST_ENTRIES = 2000
@@ -81,6 +83,153 @@ def _suspicious_reason(path: str) -> Optional[str]:
     return None
 
 
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_TAG_RE = re.compile(r"^v?\d+(\.\d+){0,2}([-.+][\w.]+)?$")
+_EVENT_INTERPOLATION_RE = re.compile(r"\$\{\{\s*github\.(?:head_ref|event\.[^}]*)\}\}")
+_SECRET_REF_RE = re.compile(r"secrets\.([A-Za-z0-9_]+)")
+_FAIL_SWALLOW_RE = re.compile(r"\|\|\s*(?:true|:)\b|\bexit\s+0\b")
+_COMMAND_KINDS = {
+    "test": re.compile(r"\b(pytest|unittest|tox|nox|npm (?:run )?test|yarn test|pnpm test|go test|cargo test|mvn(?:w)? .*test|gradle(?:w)? .*test|rspec|phpunit|dotnet test)\b"),
+    "lint": re.compile(r"\b(ruff|flake8|pylint|black|isort|mypy|eslint|prettier|golangci-lint|rubocop|pre-commit|shellcheck|hadolint|yamllint)\b"),
+    "build": re.compile(r"\b(python -m build|docker build|docker/build-push-action|npm run build|yarn build|cargo build|go build|mvn(?:w)? .*package|gradle(?:w)? .*build|make build|setup\.py (?:sdist|bdist))\b"),
+}
+_CHECKOUT_WITH_KEYS = ("ref", "repository", "persist-credentials", "fetch-depth", "token")
+
+
+def _pin_kind(uses: str) -> str:
+    if uses.startswith("./"):
+        return "local"
+    if uses.startswith("docker://"):
+        return "docker"
+    ref = uses.rsplit("@", 1)[1] if "@" in uses else ""
+    if not ref:
+        return "no ref"
+    if _SHA_RE.match(ref):
+        return "commit sha"
+    if _TAG_RE.match(ref):
+        return "version tag"
+    return "branch or other ref"
+
+
+def _event_summary(name: str, config: Any) -> str:
+    if not isinstance(config, dict) or not config:
+        return str(name)
+    details = ", ".join(f"{k}: {v}" for k, v in config.items())
+    return f"{name} ({details})"
+
+
+def _workflow_triggers(data: Dict[Any, Any]) -> Dict[str, Any]:
+    # PyYAML (YAML 1.1) parses the bare key `on` as boolean True.
+    raw = data.get("on", data.get(True))
+    if isinstance(raw, str):
+        return {raw: None}
+    if isinstance(raw, list):
+        return {str(item): None for item in raw}
+    if isinstance(raw, dict):
+        return {str(k): v for k, v in raw.items()}
+    return {}
+
+
+def _one_line(text: Any, limit: int = 200) -> str:
+    return " ; ".join(str(text).strip().splitlines())[:limit]
+
+
+def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
+    """Structured, verdict-free description of a GitHub Actions workflow."""
+    triggers = _workflow_triggers(data)
+    lines = [f"# workflow {rel_path}: {data.get('name', '(unnamed)')}", "triggers:"]
+    lines += [f"  - {_event_summary(n, c)}" for n, c in triggers.items()] or ["  (none found)"]
+    top_permissions = data.get("permissions")
+    lines.append(
+        f"permissions (workflow level): {top_permissions}" if "permissions" in data
+        else "permissions (workflow level): not set"
+    )
+    facts: List[str] = []
+    detected: Dict[str, List[str]] = {kind: [] for kind in _COMMAND_KINDS}
+    pins: Dict[str, List[str]] = {}
+    any_job_permissions = False
+
+    jobs = data.get("jobs")
+    lines.append("jobs:")
+    if not isinstance(jobs, dict) or not jobs:
+        lines.append("  (none found)")
+        jobs = {}
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        header = [f"runs-on: {job.get('runs-on')}"] if "runs-on" in job else []
+        for key in ("needs", "if", "permissions", "environment", "timeout-minutes", "continue-on-error", "uses", "secrets"):
+            if key in job:
+                header.append(f"{key}: {_one_line(job[key], 120)}")
+        lines.append(f"  {job_id} [{'; '.join(header)}]")
+        any_job_permissions = any_job_permissions or "permissions" in job
+        if job.get("continue-on-error") is True:
+            facts.append(f"job {job_id} has continue-on-error: true")
+        if job.get("secrets") == "inherit":
+            facts.append(f"job {job_id} passes all secrets with `secrets: inherit`")
+        if "uses" in job:
+            pins.setdefault(_pin_kind(str(job["uses"])), []).append(f"{job_id}: {job['uses']}")
+
+        steps = job.get("steps")
+        for number, step in enumerate(steps if isinstance(steps, list) else [], start=1):
+            if not isinstance(step, dict):
+                continue
+            where = f"job {job_id} step {number}"
+            parts: List[str] = []
+            if "name" in step:
+                parts.append(_one_line(step["name"], 80))
+            if "uses" in step:
+                uses = str(step["uses"])
+                kind = _pin_kind(uses)
+                pins.setdefault(kind, []).append(f"{where}: {uses}")
+                parts.append(f"uses: {uses} ({kind})")
+                with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
+                shown = {k: with_block[k] for k in _CHECKOUT_WITH_KEYS if k in with_block}
+                if shown:
+                    parts.append(f"with: {shown}")
+                ref = str(with_block.get("ref", ""))
+                if "pull_request_target" in triggers and ("pull_request.head" in ref or "head_ref" in ref):
+                    facts.append(f"{where} checks out the pull request head under a pull_request_target trigger")
+            run = step.get("run")
+            if run is not None:
+                parts.append(f"run: {_one_line(run)}")
+                run_text = str(run)
+                if _EVENT_INTERPOLATION_RE.search(run_text):
+                    facts.append(f"{where} interpolates ${{{{ github.event... }}}} or head_ref directly into a run script")
+                if _FAIL_SWALLOW_RE.search(run_text):
+                    facts.append(f"{where} run script contains `|| true` or `exit 0`: {_one_line(run_text, 100)}")
+                for kind, pattern in _COMMAND_KINDS.items():
+                    found = pattern.search(run_text)
+                    if found:
+                        detected[kind].append(f"{where}: {found.group(0)}")
+            for key in ("if", "continue-on-error"):
+                if key in step:
+                    parts.append(f"{key}: {_one_line(step[key], 100)}")
+            if step.get("continue-on-error") is True:
+                facts.append(f"{where} has continue-on-error: true")
+            lines.append(f"    step {number}: " + " | ".join(parts))
+
+    if "pull_request_target" in triggers:
+        facts.append("workflow uses the pull_request_target trigger")
+    if "permissions" not in data and not any_job_permissions:
+        facts.append("no explicit permissions set at workflow or job level (repository default token permissions apply)")
+    for kind in ("branch or other ref", "no ref"):
+        if pins.get(kind):
+            facts.append(f"actions not pinned to a tag or sha ({kind}): " + "; ".join(pins[kind][:10]))
+    if pins.get("version tag"):
+        facts.append(f"{len(pins['version tag'])} action reference(s) pinned to a version tag, "
+                     f"{len(pins.get('commit sha', []))} to a commit sha")
+    secret_names = sorted(set(_SECRET_REF_RE.findall(yaml.safe_dump(data, default_flow_style=False))))
+    if secret_names:
+        facts.append("secrets referenced: " + ", ".join(secret_names))
+    for kind, hits in detected.items():
+        facts.append(f"{kind} commands found by keyword match: " + ("; ".join(hits[:8]) if hits else "none"))
+
+    lines.append("facts:")
+    lines += [f"  - {fact}" for fact in facts] or ["  (none)"]
+    return "\n".join(lines)
+
+
 class Toolbox:
     """Inspection tools bound to one cloned repository directory."""
 
@@ -92,6 +241,7 @@ class Toolbox:
             "search_code": self.search_code,
             "git_log": self.git_log,
             "git_status": self.git_status,
+            "parse_workflow": self.parse_workflow,
         }
 
     # ---- dispatch ---------------------------------------------------------
@@ -304,6 +454,26 @@ class Toolbox:
             lines.append(f"[{len(flagged) - 200} more not shown]")
         return "\n".join(lines)
 
+    def parse_workflow(self, path: str) -> str:
+        """Parse a GitHub Actions workflow YAML into triggers, permissions, jobs, steps and factual observations."""
+        target = self._resolve(path)
+        if not target.exists():
+            raise ToolError(f"no such file: {path!r}. Workflows live in .github/workflows/; use list_files.")
+        if not target.is_file():
+            raise ToolError(f"{path!r} is a directory; pass a workflow file")
+        if target.stat().st_size > MAX_READ_BYTES:
+            raise ToolError(f"{path!r} is larger than {MAX_READ_BYTES} bytes and was not parsed")
+        try:
+            data = yaml.safe_load(target.read_text(encoding="utf-8", errors="replace"))
+        except yaml.YAMLError as exc:
+            problem = getattr(exc, "problem", None) or "invalid YAML"
+            mark = getattr(exc, "problem_mark", None)
+            where = f" at line {mark.line + 1}" if mark else ""
+            raise ToolError(f"{path!r} is not valid YAML: {problem}{where}") from None
+        if not isinstance(data, dict):
+            raise ToolError(f"{path!r} does not contain a YAML mapping, so it is not a workflow")
+        return summarize_workflow(self._relative(target), data)
+
     def _git(self, args: List[str]) -> str:
         env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
         try:
@@ -385,6 +555,18 @@ TOOL_SPECS: List[Dict[str, Any]] = [
                     "path": {"type": "string", "description": "Only commits touching this path."},
                     "show_files": {"type": "boolean"},
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_workflow",
+            "description": "Parse a GitHub Actions workflow file (.github/workflows/*.yml) into triggers, permissions, jobs, steps, action pinning and factual observations (e.g. continue-on-error, `|| true`, pull_request_target, event data interpolated into scripts). Facts only; you decide what is a violation. Use read_file for exact line numbers.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Workflow file path relative to the repo root."}},
+                "required": ["path"],
             },
         },
     },
