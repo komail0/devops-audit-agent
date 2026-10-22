@@ -50,6 +50,16 @@ Configuration is read from `.env` (never committed):
   - compaction of old tool output
   - a step cap (`AGENT_MAX_STEPS` counts LLM turns) and a wall-clock timeout; when either is reached it asks once for a final report from the evidence gathered, and raises an error rather than inventing one if none comes
 - `devops_agent/prompts.py`: the system prompt, where the audit judgement lives: inspection areas, acceptable alternatives (so optional files with equivalents are not flagged), evidence rules, a severity rubric, a rule-id catalogue, and an instruction to batch tool calls to save requests. Tools report facts only; the model decides what is a violation.
+- `devops_agent/report.py`: turns the model's submitted violations into the final JSON. It checks them against what the agent actually did:
+  - every violation must cite `[step N]` tool results that were really executed, or it is dropped
+  - the file must exist in the repository, otherwise the location is cleared to `null`
+  - the line must be inside the file, otherwise it is cleared to `null`
+  - category and severity are normalised to the allowed values
+  - secrets are redacted and long text is truncated
+  - duplicates are removed
+  - the report is sorted by severity and written atomically
+
+  Every change or drop is returned as a note so it can be logged; nothing is silently invented.
 - `devops_agent/schema.py`: severity and category vocabulary and the `submit_report` tool definition.
 - `devops_agent/trace.py`: redacted record of every assistant note and tool call, for auditing a run.
 - `tools.py`: read-only inspection tools bound to the cloned repository, with JSON schemas (`TOOL_SPECS`) for LLM tool calling. Tools return plain-text observations, never raise, and apply redaction and size caps to all output.
