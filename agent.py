@@ -91,6 +91,8 @@ def main(
     except ConfigError as exc:
         return fail(EXIT_USAGE, str(exc))
     secrets.extend(config.secrets())
+    for note in config.notes:
+        log(f"note: {note}")
     overrides = {}
     if args.max_steps is not None:
         overrides["max_steps"] = args.max_steps

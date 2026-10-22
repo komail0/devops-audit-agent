@@ -28,6 +28,7 @@ MAX_SEARCH_FILE_BYTES = 1_000_000
 MAX_PATTERN_CHARS = 300
 SEARCH_TIME_BUDGET_SECONDS = 10
 MAX_GIT_LOG_COUNT = 100
+MAX_HISTORY_MATCHES = 40
 GIT_TIMEOUT_SECONDS = 20
 MAX_READ_CHARS = 12_000
 MAX_OUTPUT_CHARS = 16_000
@@ -139,16 +140,69 @@ def _one_line(text: Any, limit: int = 200) -> str:
     return " ; ".join(str(text).strip().splitlines())[:limit]
 
 
-def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
-    """Structured, verdict-free description of a GitHub Actions workflow."""
+def _index_lines(text: str) -> Dict[tuple, Any]:
+    """1-based line numbers of jobs, steps and their keys, taken from the YAML node tree (the data stays untouched)."""
+    try:
+        root = yaml.compose(text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError:
+        return {}
+    index: Dict[tuple, Any] = {}
+
+    def pairs(node: Any) -> List[tuple]:
+        if not isinstance(node, yaml.MappingNode):
+            return []
+        return [(k.value, k, v) for k, v in node.value if isinstance(k, yaml.ScalarNode)]
+
+    for key, key_node, value_node in pairs(root):
+        index[("top", key)] = key_node.start_mark.line + 1
+        if key != "jobs":
+            continue
+        for job_id, job_key, job_node in pairs(value_node):
+            index[("job", job_id)] = job_key.start_mark.line + 1
+            for name, name_node, node in pairs(job_node):
+                index[("job", job_id, name)] = name_node.start_mark.line + 1
+                if name != "steps" or not isinstance(node, yaml.SequenceNode):
+                    continue
+                for number, step_node in enumerate(node.value, start=1):
+                    index[("step", job_id, number)] = step_node.start_mark.line + 1
+                    for skey, skey_node, svalue in pairs(step_node):
+                        index[("step", job_id, number, skey)] = skey_node.start_mark.line + 1
+                        if skey == "run" and isinstance(svalue, yaml.ScalarNode):
+                            index[("runnode", job_id, number)] = svalue
+                        if skey == "with":
+                            for wkey, wkey_node, _ in pairs(svalue):
+                                index[("step", job_id, number, "with." + wkey)] = wkey_node.start_mark.line + 1
+    return index
+
+
+def _run_line(index: Dict[tuple, Any], job_id: Any, number: int, pattern: "re.Pattern[str]") -> Optional[int]:
+    """Line of the first row of a step's run script that matches pattern (the key line for one-line scripts)."""
+    node = index.get(("runnode", job_id, number))
+    if node is None:
+        return index.get(("step", job_id, number, "run"))
+    if node.style in ("|", ">"):
+        for offset, row in enumerate(str(node.value).splitlines()):
+            if pattern.search(row):
+                return node.start_mark.line + 2 + offset
+    return node.start_mark.line + 1
+
+
+def summarize_workflow(rel_path: str, data: Dict[Any, Any], index: Optional[Dict[tuple, Any]] = None) -> str:
+    """Structured, verdict-free description of a GitHub Actions workflow, with line numbers when available."""
+    index = index or {}
+
+    def at(*key: Any) -> str:
+        line = index.get(key)
+        return f" (line {line})" if isinstance(line, int) else ""
+
     triggers = _workflow_triggers(data)
-    lines = [f"# workflow {rel_path}: {data.get('name', '(unnamed)')}", "triggers:"]
+    lines = [f"# workflow {rel_path}: {data.get('name', '(unnamed)')}", f"triggers{at('top', 'on')}:"]
     lines += [f"  - {_event_summary(n, c)}" for n, c in triggers.items()] or ["  (none found)"]
     top_permissions = data.get("permissions")
-    lines.append(
-        f"permissions (workflow level): {top_permissions}" if "permissions" in data
-        else "permissions (workflow level): not set"
-    )
+    if "permissions" in data:
+        lines.append(f"permissions (workflow level){at('top', 'permissions')}: {top_permissions}")
+    else:
+        lines.append("permissions (workflow level): not set")
     facts: List[str] = []
     detected: Dict[str, List[str]] = {kind: [] for kind in _COMMAND_KINDS}
     pins: Dict[str, List[str]] = {}
@@ -166,14 +220,16 @@ def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
         for key in ("needs", "if", "permissions", "environment", "timeout-minutes", "continue-on-error", "uses", "secrets"):
             if key in job:
                 header.append(f"{key}: {_one_line(job[key], 120)}")
-        lines.append(f"  {job_id} [{'; '.join(header)}]")
+        lines.append(f"  {job_id}{at('job', job_id)} [{'; '.join(header)}]")
         any_job_permissions = any_job_permissions or "permissions" in job
         if job.get("continue-on-error") is True:
-            facts.append(f"job {job_id} has continue-on-error: true")
+            facts.append(f"job {job_id} has continue-on-error: true{at('job', job_id, 'continue-on-error')}")
         if job.get("secrets") == "inherit":
-            facts.append(f"job {job_id} passes all secrets to the called workflow (secrets set to inherit)")
+            facts.append(
+                f"job {job_id} passes all secrets to the called workflow (secrets set to inherit){at('job', job_id, 'secrets')}"
+            )
         if "uses" in job:
-            pins.setdefault(_pin_kind(str(job["uses"])), []).append(f"{job_id}: {job['uses']}")
+            pins.setdefault(_pin_kind(str(job["uses"])), []).append(f"{job_id}{at('job', job_id, 'uses')}: {job['uses']}")
 
         steps = job.get("steps")
         for number, step in enumerate(steps if isinstance(steps, list) else [], start=1):
@@ -186,7 +242,7 @@ def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
             if "uses" in step:
                 uses = str(step["uses"])
                 kind = _pin_kind(uses)
-                pins.setdefault(kind, []).append(f"{where}: {uses}")
+                pins.setdefault(kind, []).append(f"{where}{at('step', job_id, number, 'uses')}: {uses}")
                 parts.append(f"uses: {uses} ({kind})")
                 with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
                 shown = {k: with_block[k] for k in _CHECKOUT_WITH_KEYS if k in with_block}
@@ -194,15 +250,26 @@ def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
                     parts.append(f"with: {shown}")
                 ref = str(with_block.get("ref", ""))
                 if "pull_request_target" in triggers and ("pull_request.head" in ref or "head_ref" in ref):
-                    facts.append(f"{where} checks out the pull request head under a pull_request_target trigger")
+                    facts.append(
+                        f"{where} checks out the pull request head under a pull_request_target trigger"
+                        f"{at('step', job_id, number, 'with.ref')}"
+                    )
             run = step.get("run")
             if run is not None:
                 parts.append(f"run: {_one_line(run)}")
                 run_text = str(run)
                 if _EVENT_INTERPOLATION_RE.search(run_text):
-                    facts.append(f"{where} interpolates ${{{{ github.event... }}}} or head_ref directly into a run script")
+                    line = _run_line(index, job_id, number, _EVENT_INTERPOLATION_RE)
+                    facts.append(
+                        f"{where} interpolates ${{{{ github.event... }}}} or head_ref directly into a run script"
+                        f"{f' (line {line})' if line else ''}"
+                    )
                 if _FAIL_SWALLOW_RE.search(run_text):
-                    facts.append(f"{where} run script contains `|| true` or `exit 0`: {_one_line(run_text, 100)}")
+                    line = _run_line(index, job_id, number, _FAIL_SWALLOW_RE)
+                    facts.append(
+                        f"{where} run script contains `|| true` or `exit 0`: {_one_line(run_text, 100)}"
+                        f"{f' (line {line})' if line else ''}"
+                    )
                 for kind, pattern in _COMMAND_KINDS.items():
                     found = pattern.search(run_text)
                     if found:
@@ -211,11 +278,11 @@ def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
                 if key in step:
                     parts.append(f"{key}: {_one_line(step[key], 100)}")
             if step.get("continue-on-error") is True:
-                facts.append(f"{where} has continue-on-error: true")
-            lines.append(f"    step {number}: " + " | ".join(parts))
+                facts.append(f"{where} has continue-on-error: true{at('step', job_id, number, 'continue-on-error')}")
+            lines.append(f"    step {number}{at('step', job_id, number)}: " + " | ".join(parts))
 
     if "pull_request_target" in triggers:
-        facts.append("workflow uses the pull_request_target trigger")
+        facts.append(f"workflow uses the pull_request_target trigger{at('top', 'on')}")
     if "permissions" not in data and not any_job_permissions:
         facts.append("no explicit permissions set at workflow or job level (repository default token permissions apply)")
     for kind in ("branch or other ref", "no ref"):
@@ -248,6 +315,7 @@ class Toolbox:
             "git_log": self.git_log,
             "git_status": self.git_status,
             "parse_workflow": self.parse_workflow,
+            "search_history": self.search_history,
         }
 
     # ---- dispatch ---------------------------------------------------------
@@ -333,7 +401,14 @@ class Toolbox:
         top = sorted(
             f"{p.name}/" if p.is_dir() else p.name for p in self.root.iterdir() if p.name != ".git" and not p.is_symlink()
         )
-        return f"{total} file(s). Most common: {common or 'none'}.\nTop level: {', '.join(top[:40]) or '(empty)'}"
+        text = f"{total} file(s). Most common: {common or 'none'}.\nTop level: {', '.join(top[:40]) or '(empty)'}"
+        try:
+            commits = int(self._git(["rev-list", "--count", "HEAD"]).strip())
+        except (ToolError, ValueError):
+            commits = 0
+        if commits:
+            text += f"\nGit history: {commits} commit(s) available{' (shallow clone)' if self._shallow_note() else ''}."
+        return text
 
     # ---- tools ------------------------------------------------------------
 
@@ -456,13 +531,69 @@ class Toolbox:
             cmd.append("--name-only")
         if path:
             cmd += ["--", self._relative(self._resolve(path))]
-        out = self._git(cmd)
+        out = self._git_history(cmd)
         if not out.strip():
-            return "(no commits found)"
-        note = ""
+            return "(no commits yet)"
+        return f"# last {count} commit(s) max\n{out.strip()}{self._shallow_note()}"
+
+    def search_history(self, pattern: str, path: Optional[str] = None, max_commits: int = 50) -> str:
+        """Search commit diffs for a regex: lines added (+) or removed (-), including secrets deleted from source later."""
+        if not isinstance(pattern, str) or not pattern:
+            raise ToolError("pattern must be a non-empty string")
+        if len(pattern) > MAX_PATTERN_CHARS:
+            raise ToolError(f"pattern is longer than {MAX_PATTERN_CHARS} characters")
+        try:
+            regex = re.compile(pattern)
+        except re.error as exc:
+            raise ToolError(f"invalid regular expression: {exc}") from None
+        count = min(max(_to_int(max_commits, "max_commits"), 1), MAX_GIT_LOG_COUNT)
+        base = ["--no-pager", "log", f"--max-count={count}", "-p", "-U0", "--no-color", "--no-ext-diff",
+                "--no-textconv", "--date=short", "--format=@@@ %h %ad"]
+        tail = ["--", self._relative(self._resolve(path))] if path else []
+        try:  # git's own -G prefilter (POSIX regex) keeps the output small
+            out = self._git_history([*base[:3], f"-G{pattern}", *base[3:], *tail])
+        except ToolError as exc:
+            if "egular expression" not in str(exc):
+                raise
+            out = ""
+        if not out.strip():
+            # Python syntax such as \d is not POSIX, so the prefilter can miss: scan unfiltered and match in Python.
+            out = self._git_history([*base, *tail])
+        matches: List[str] = []
+        header, current_file, in_hunk = "", "", False
+        for line in out.splitlines():
+            if line.startswith("@@@ "):
+                header, current_file, in_hunk = line[4:], "", False
+            elif line.startswith("diff --git "):
+                current_file, in_hunk = line.rsplit(" b/", 1)[-1], False
+            elif line.startswith("@@ "):
+                in_hunk = True
+            elif in_hunk and line[:1] in ("+", "-") and regex.search(line[1:]):
+                matches.append(f"{header} {current_file}: {line[0]}{line[1:].strip()[:200]}")
+        shown = matches[:MAX_HISTORY_MATCHES]
+        head = (
+            f"# {len(matches)} match(es) in history for /{pattern}/, newest commit first. "
+            "'-' lines were removed by that commit, so they exist in older history; '+' lines were added."
+        )
+        if len(matches) > len(shown):
+            head += f" Showing the first {len(shown)}."
+        if not out.strip():
+            return "(no commits yet)"
+        return head + ("\n" + "\n".join(shown) if shown else "") + self._shallow_note()
+
+    def _shallow_note(self) -> str:
         if (self.root / ".git" / "shallow").exists():
-            note = "\n[history is shallow: only recent commits are available]"
-        return f"# last {count} commit(s) max\n{out.strip()}{note}"
+            return "\n[history is shallow: only recent commits are available]"
+        return ""
+
+    def _git_history(self, args: List[str]) -> str:
+        """Run a git history command; a repository with no commits yet gives empty output, not an error."""
+        try:
+            return self._git(args)
+        except ToolError as exc:
+            if "does not have any commits" in str(exc):
+                return ""
+            raise
 
     def git_status(self) -> str:
         """Tracked files that commonly should not be committed (observations only, judge by context)."""
@@ -492,8 +623,9 @@ class Toolbox:
             raise ToolError(f"{path!r} is a directory; pass a workflow file")
         if target.stat().st_size > MAX_READ_BYTES:
             raise ToolError(f"{path!r} is larger than {MAX_READ_BYTES} bytes and was not parsed")
+        text = target.read_text(encoding="utf-8", errors="replace")
         try:
-            data = yaml.safe_load(target.read_text(encoding="utf-8", errors="replace"))
+            data = yaml.safe_load(text)
         except yaml.YAMLError as exc:
             problem = getattr(exc, "problem", None) or "invalid YAML"
             mark = getattr(exc, "problem_mark", None)
@@ -501,7 +633,7 @@ class Toolbox:
             raise ToolError(f"{path!r} is not valid YAML: {problem}{where}") from None
         if not isinstance(data, dict):
             raise ToolError(f"{path!r} does not contain a YAML mapping, so it is not a workflow")
-        return summarize_workflow(self._relative(target), data)
+        return summarize_workflow(self._relative(target), data, _index_lines(text))
 
     def _git(self, args: List[str]) -> str:
         env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
@@ -596,6 +728,22 @@ TOOL_SPECS: List[Dict[str, Any]] = [
                 "type": "object",
                 "properties": {"path": {"type": "string", "description": "Workflow file path relative to the repo root."}},
                 "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_history",
+            "description": "Search git history (commit diffs) for a regex, including lines that were later removed, for example a secret deleted from source but still present in older commits. Returns commit, date, file and the matching added (+) or removed (-) line. Secret values are redacted. History may be shallow.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Python regular expression matched against changed lines."},
+                    "path": {"type": "string", "description": "Only look at changes to this path."},
+                    "max_commits": {"type": "integer", "description": "Commits to scan, 1-100, default 50."},
+                },
+                "required": ["pattern"],
             },
         },
     },

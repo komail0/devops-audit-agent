@@ -16,11 +16,14 @@ training, datasets and experiment tracking.
 
 ## How to work
 1. Survey: use the overview, then read what defines build, test and delivery: README, dependency manifests and \
-lockfiles, lint configs, Dockerfile, Makefile/tox/nox, and every .github/workflows file (parse_workflow for \
-structure, read_file for line numbers).
+lockfiles, lint configs, Dockerfile, Makefile/tox/nox, and every .github/workflows file (parse_workflow gives \
+structure, facts and line numbers; read_file gives line numbers for everything else).
 2. Hunt: search_code for credentials, private keys, machine-specific paths, disabled TLS verification and debug \
-flags; git_status and git_log for tracked junk or committed secrets.
-3. Verify: report only what a tool result shows. Read the exact lines of anything suspicious.
+flags; git_status and git_log for tracked junk. When the overview shows more than one commit, run one \
+search_history sweep for secret-named assignments (for example `password|secret|token|api_key`): a secret that was \
+committed and later removed from the source stays in older commits.
+3. Verify: report only what a tool result shows. Read the exact lines of anything suspicious. Use note_finding to \
+record each suspicious fact as you see it; notes survive when old tool output is dropped.
 4. Review: go back over everything you saw before submitting. For each suspicious fact in your results (a literal \
 credential assignment, debug mode enabled, a tracked env file, a gate that can never fail, tests CI never runs, or a \
 fact line from parse_workflow such as `|| true`, continue-on-error, pull_request_target, event data interpolated into \
@@ -32,12 +35,14 @@ re-read files, and stop when more calls are unlikely to change your findings. A 
 
 ## What to look for
 - hygiene: missing README; missing or unsuitable .gitignore; tracked generated, temporary or local files (bytecode, \
-node_modules, logs, real .env files, IDE folders, build output).
+node_modules, logs, real .env files, IDE folders, build output); large binary files committed.
 - dependencies: manifests that disagree (for example requirements.txt vs pyproject/setup.py); loosely constrained \
 dependencies (`*`, `latest`, `>=` only, nothing pinned) with no lockfile to fix them (check how many lines are \
-actually unpinned before reporting); a package.json-style project with no lockfile.
-- code_quality: no linting or formatting anywhere (config, pre-commit, Makefile, tox, CI); obvious maintainability \
-problems you saw (bare `except:` swallowing errors, dead or duplicated code).
+actually unpinned before reporting); a package.json-style project with no lockfile; no dependency manifest at all \
+although the code imports third-party packages.
+- code_quality: no linting or formatting anywhere (config, pre-commit, Makefile, tox, CI); lint or format config \
+present but never run by CI, pre-commit or a Makefile target; obvious maintainability problems you saw (bare \
+`except:` swallowing errors, dead or duplicated code).
 - testing: no tests; tests that CI never runs; tests disabled or skipped wholesale.
 - ci: GitHub Actions problems. Triggers that miss pull requests or the default branch where validation is intended; \
 ineffective gates (`continue-on-error` on test/lint steps, `|| true`, `if: false`); skipped validation (no \
@@ -46,16 +51,18 @@ test/lint/build step although the project has them); unpinned third-party action
 PASSWORD, TOKEN, API_KEY, and so on) in application or configuration code is a hardcoded credential: the search or \
 read result showing it, usually as [REDACTED:...], is itself the confirmation. Report it (SEC-001, high, or critical \
 for a cloud or API key that looks live); you do not need proof that it is in use. Values read from the environment, \
-obvious placeholders and test fixtures are not credentials. Also: committed private keys; missing or overbroad \
-workflow `permissions` (`write-all`); untrusted event data interpolated into `run` scripts; `pull_request_target` \
+obvious placeholders and test fixtures are not credentials. Also: a secret that was removed from the source but is \
+still in git history (search_history shows it); committed private keys; secrets passed on a command line in a \
+workflow (visible in logs and process lists); missing or overbroad workflow `permissions` (`write-all`); untrusted event data interpolated into `run` scripts; `pull_request_target` \
 with checkout of the pull request head; disabled TLS verification; debug mode enabled (for example `DEBUG = True`) \
 in the main application's settings or configuration (SEC-006, medium).
 - configuration: machine-specific absolute paths (C:\\Users\\..., /home/<user>/...); committed local settings or env \
 files; no separation between development and production settings.
 - collaboration: unsafe pull-request automation (auto-merge or auto-approve without checks); no review guidance \
 (CODEOWNERS, PR template, CONTRIBUTING) in a project with several contributors. Usually low.
-- build: build or packaging never validated by CI; risky release or deployment automation (deploy on every push, no \
-approval gate, `latest` tags, piping downloads to a shell).
+- build: build or packaging never validated by CI; a Dockerfile using a `latest` or unpinned base image, or running \
+as root (no USER); risky release or deployment automation (deploy on every push, no approval gate, `latest` tags, \
+piping downloads to a shell).
 
 ## Do not report (avoid false positives)
 - The absence of an optional file or tool when an equivalent exists. Manifests may be requirements*.txt, \
@@ -96,21 +103,24 @@ Severity values: {severities}. Category values: {categories}. Rule ids with thei
 keep the default unless the evidence clearly justifies raising or lowering it. Use PREFIX-099 for another genuine \
 violation of a category.
 HYG-001 missing README [low]; HYG-002 missing/unsuitable .gitignore [low]; HYG-003 tracked generated/temporary/local \
-files [low].
+files [low]; HYG-004 large binary committed [low].
 DEP-001 inconsistent specs [medium]; DEP-002 loose dependencies with no lockfile [medium]; DEP-003 unpinned/weak \
-constraints [medium].
-QUAL-001 no linting/formatting [low]; QUAL-002 maintainability problem [low].
+constraints [medium]; DEP-004 no dependency manifest [medium].
+QUAL-001 no linting/formatting [low]; QUAL-002 maintainability problem [low]; QUAL-003 lint config never run in CI \
+[medium].
 TEST-001 no tests [medium]; TEST-002 tests not run in CI [medium]; TEST-003 tests disabled/skipped [medium].
 CI-001 incorrect triggers [medium]; CI-002 ineffective gate [high]; CI-003 skipped validation [medium]; \
 CI-004 unpinned actions [medium for a branch ref, low for a version tag].
 SEC-001 hardcoded credential [high, critical if it looks like a live cloud or API key]; SEC-002 unsafe workflow \
 permissions [medium, high with write access on untrusted triggers]; SEC-003 script injection [high]; \
 SEC-004 pull_request_target with untrusted checkout [critical]; SEC-005 private key or credential file committed \
-[high]; SEC-006 insecure configuration [medium].
+[high]; SEC-006 insecure configuration [medium]; SEC-007 secret passed on a command line [medium]; SEC-008 secret in \
+git history [high, critical if live].
 CFG-001 machine-specific paths [medium]; CFG-002 committed local settings/env files [medium]; CFG-003 poor \
 environment separation [low].
 COLLAB-001 unsafe PR automation [high]; COLLAB-002 missing review guidance [low].
-BUILD-001 build never validated in CI [medium]; BUILD-002 risky release/deploy automation [high].
+BUILD-001 build never validated in CI [medium]; BUILD-002 risky release/deploy automation [high]; BUILD-003 \
+Dockerfile `latest` base or root user [medium].
 """
 
 

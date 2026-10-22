@@ -37,6 +37,27 @@ VIOLATION_FIELDS = (
 )
 
 SUBMIT_REPORT = "submit_report"
+NOTE_FINDING = "note_finding"
+
+NOTE_FINDING_SPEC: Dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": NOTE_FINDING,
+        "description": (
+            "Record a suspicious fact you just saw, so it is not lost when old tool output is dropped. "
+            "It is a note, not a report: confirm it, then include it in submit_report."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "description": "What looks wrong, in one sentence."},
+                "file": {"type": ["string", "null"], "description": "Repo-relative path, or null."},
+                "step": {"type": "integer", "description": "The [step N] of the result that showed it."},
+            },
+            "required": ["summary"],
+        },
+    },
+}
 
 SUBMIT_REPORT_SPEC: Dict[str, Any] = {
     "type": "function",

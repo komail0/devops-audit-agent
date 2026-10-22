@@ -64,7 +64,7 @@ def test_healthy_workflow_facts(tmp_path):
     out = _box(tmp_path, HEALTHY).parse_workflow(".github/workflows/ci.yml")
     assert "# workflow .github/workflows/ci.yml: CI" in out
     assert "push (branches: ['main'])" in out and "  - pull_request" in out
-    assert "permissions (workflow level): {'contents': 'read'}" in out
+    assert "permissions (workflow level) (line 6): {'contents': 'read'}" in out
     assert "commit sha" in out and "version tag" in out
     assert "test commands found by keyword match in run steps: job test step 5: pytest" in out
     assert "lint commands found by keyword match in run steps: job test step 4: ruff" in out
@@ -83,7 +83,7 @@ def test_risky_workflow_facts(tmp_path):
     assert "job build has continue-on-error: true" in out
     assert "no explicit permissions set at workflow or job level" in out
     assert "actions not pinned to a tag or sha (branch or other ref)" in out
-    assert "build step 1: actions/checkout@main" in out
+    assert "build step 1 (line 10): actions/checkout@main" in out
     assert "secrets referenced: DEPLOY_TOKEN" in out
     assert "job reuse passes all secrets to the called workflow (secrets set to inherit)" in out
 

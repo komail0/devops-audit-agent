@@ -255,3 +255,12 @@ def test_script_rejects_bad_url_with_message(tmp_path):
 def test_script_help_works():
     result = run_script("--help")
     assert result.returncode == 0 and "--output" in result.stdout
+
+
+def test_cli_logs_how_defaults_were_chosen(tmp_path, workspace, capsys):
+    from dataclasses import replace
+
+    config = replace(CONFIG, notes=("LLM_MODEL not set; using the default groq model 'x' (set LLM_MODEL to change it)",))
+    llm = ScriptedLLM([LLMReply("", [call(SUBMIT_REPORT, {"violations": []}, "c1")])])
+    code, _ = run_cli(tmp_path, llm=llm, workspace=workspace, config=config)
+    assert code == 0 and "note: LLM_MODEL not set" in capsys.readouterr().err

@@ -5,7 +5,7 @@ import pytest
 from devops_agent import agent_loop
 from devops_agent.agent_loop import AgentError, run_agent
 from devops_agent.llm import LLMError, LLMReply, ToolCall
-from devops_agent.schema import SUBMIT_REPORT, SUBMIT_REPORT_SPEC
+from devops_agent.schema import NOTE_FINDING, SUBMIT_REPORT, SUBMIT_REPORT_SPEC
 from devops_agent.trace import Trace
 from tools import Toolbox
 
@@ -110,7 +110,10 @@ def test_first_message_contains_overview_and_system_prompt(box):
     messages, offered = llm.seen[0]
     assert messages[0] == {"role": "system", "content": "system prompt"}
     assert "https://github.com/o/r" in messages[1]["content"] and "Top level:" in messages[1]["content"]
-    assert set(offered) == {"list_files", "read_file", "search_code", "git_log", "git_status", "parse_workflow", SUBMIT_REPORT}
+    assert set(offered) == {
+        "list_files", "read_file", "search_code", "git_log", "git_status", "parse_workflow", "search_history",
+        NOTE_FINDING, SUBMIT_REPORT,
+    }
 
 
 def test_tool_results_are_labelled_with_step_numbers_and_redacted(box):

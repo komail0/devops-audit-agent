@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from devops_agent.redact import redact_object
-from devops_agent.schema import CATEGORIES, CATEGORY_PREFIXES, SEVERITIES, SUBMIT_REPORT, VIOLATION_FIELDS
+from devops_agent.schema import CATEGORIES, CATEGORY_PREFIXES, NOTE_FINDING, SEVERITIES, SUBMIT_REPORT, VIOLATION_FIELDS
 
 MAX_DESCRIPTION_CHARS = 300
 MAX_EVIDENCE_CHARS = 600
@@ -73,7 +73,7 @@ def _valid_refs(value: Any, executed_steps: Dict[int, str]) -> List[int]:
         except (TypeError, ValueError):
             continue
         tool = executed_steps.get(number)
-        if tool and tool != SUBMIT_REPORT and number not in refs:
+        if tool and tool not in (SUBMIT_REPORT, NOTE_FINDING) and number not in refs:
             refs.append(number)
     return refs
 
@@ -175,7 +175,7 @@ def build_report(
             notes.append(f"{label} ({rule_id}): {file_note}; location cleared")
         line = _clean_line(raw.get("line"), file, repo_root)
         if raw.get("line") is not None and file is not None and line is None:
-            notes.append(f"{label} ({rule_id}): line {raw.get('line')!r} is outside the file; line cleared")
+            notes.append(f"{label} ({rule_id}): line {raw.get('line')!r} is not a valid line for that file; line cleared")
 
         violation = {
             "rule_id": rule_id,

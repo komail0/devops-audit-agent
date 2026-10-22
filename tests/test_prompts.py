@@ -43,8 +43,8 @@ def test_prompt_states_the_evidence_and_precision_rules(prompt):
 
 
 def test_prompt_mentions_only_tools_that_exist(prompt):
-    named = set(re.findall(r"\b(list_files|read_file|search_code|git_log|git_status|parse_workflow|submit_report|run_pytest|run_ruff)\b", prompt))
-    available = {spec["function"]["name"] for spec in TOOL_SPECS} | {"submit_report"}
+    named = set(re.findall(r"\b(list_files|read_file|search_code|search_history|git_log|git_status|parse_workflow|note_finding|submit_report|run_pytest|run_ruff)\b", prompt))
+    available = {spec["function"]["name"] for spec in TOOL_SPECS} | {"submit_report", "note_finding"}
     assert named <= available
 
 
