@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/adeyosemanputra/pygoat",
+  "violations": [
+    {
+      "rule_id": "SEC-001",
+      "category": "security",
+      "severity": "critical",
+      "file": "pygoat/settings.py",
+      "line": 23,
+      "description": "Hardcoded SECRET_KEY in Django settings.",
+      "evidence": "SECRET_KEY = \"[REDACTED:credential]\" in pygoat/settings.py line 23.",
+      "recommendation": "Use environment variables to manage secrets."
+    },
+    {
+      "rule_id": "SEC-006",
+      "category": "security",
+      "severity": "medium",
+      "file": "pygoat/settings.py",
+      "line": 28,
+      "description": "DEBUG mode is enabled in settings.",
+      "evidence": "DEBUG = True in pygoat/settings.py line 28.",
+      "recommendation": "Set DEBUG = False for production environments."
+    }
+  ]
+}

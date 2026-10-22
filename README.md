@@ -4,7 +4,15 @@ An AI agent that inspects a public GitHub repository, finds DevOps best-practice
 
 Agent cycle: Observe → Reason → Select Tool → Execute Tool → Interpret Results → Report.
 
-**Status:** the agent is implemented end to end. It has been exercised against a live model only partially so far (see Limitations), and `sample_report.json` has not been generated yet.
+**Status:** the agent is implemented end to end and has been run against live models on public repositories (see Limitations for what that does and does not show).
+
+**Sample output:** `sample_report.json` is the unedited result of a real run:
+
+```
+python agent.py --repo https://github.com/adeyosemanputra/pygoat --output sample_report.json
+```
+
+with `gemini-3.1-flash-lite`. `pygoat` is a deliberately vulnerable Django training app; the report lists its hardcoded `SECRET_KEY` and `DEBUG = True`. Output varies between runs and models, so a different run may report more or fewer findings.
 
 ## Usage
 
