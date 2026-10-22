@@ -181,6 +181,18 @@ python agent.py --repo https://github.com/adeyosemanputra/pygoat --output sample
 
 with `gemini-3.1-flash-lite`. `pygoat` is a deliberately vulnerable Django training app; the report lists its hardcoded `SECRET_KEY` and `DEBUG = True`. Output varies between runs and models, so a different run may report more or fewer findings.
 
+## Validation
+
+Results from live runs. They are single runs, so treat them as indicative: output varies between runs and models.
+
+| Target | Model | Result |
+|---|---|---|
+| `psf/requests` (well-maintained) | `gemini-3.5-flash-lite` | 0 findings in every run (expected: none) |
+| `adeyosemanputra/pygoat` (vulnerable teaching app) | `gemini-3.1-flash-lite` | Hardcoded `SECRET_KEY` and `DEBUG = True`, both with correct lines. An early run also reported "no lockfile" for a fully pinned `requirements.txt`, a false positive that led to a prompt change |
+| A purpose-built test repository with 13 injected defects (tracked `.env` and bytecode, no `.gitignore`, hardcoded password, machine-specific path, CI triggered only on `dev`, `\|\| true` and `continue-on-error` gates, `write-all` permissions, `@main` action, `pull_request_target` with PR checkout, script injection, `curl \| bash` deploy) plus decoys that must not be flagged (`pyproject.toml` instead of `requirements.txt`, ruff configured, tests present) | `gemini-3.5-flash-lite` | Typically 12 of 13 defects, each run missing a different one; no findings on the decoys; severities spread from critical to low |
+
+Smaller models were noticeably less consistent: on `pygoat`, the smallest model tried missed the hardcoded secret in 3 of 3 runs.
+
 ## Limitations
 
 - Static inspection only. Target code is never executed, so failing tests cannot be detected.
