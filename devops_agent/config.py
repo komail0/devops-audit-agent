@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
-DEFAULT_MAX_STEPS = 30
+DEFAULT_MAX_STEPS = 15
 DEFAULT_TIMEOUT_SECONDS = 600
 
 

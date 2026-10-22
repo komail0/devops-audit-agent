@@ -9,12 +9,12 @@ BASE = {"LLM_BASE_URL": "https://llm.example/v1", "LLM_API_KEY": "key-12345678",
 
 def test_defaults_applied():
     cfg = Config.from_env(BASE)
-    assert (cfg.max_steps, cfg.timeout_seconds) == (30, 600)
+    assert (cfg.max_steps, cfg.timeout_seconds) == (15, 600)
 
 
 def test_blank_optionals_use_defaults():
     cfg = Config.from_env({**BASE, "AGENT_MAX_STEPS": "", "AGENT_TIMEOUT_SECONDS": "  "})
-    assert (cfg.max_steps, cfg.timeout_seconds) == (30, 600)
+    assert (cfg.max_steps, cfg.timeout_seconds) == (15, 600)
 
 
 def test_overrides():

@@ -75,7 +75,7 @@ def run_agent(
     toolbox: Toolbox,
     repo_url: str,
     system_prompt: str,
-    max_steps: int = 30,
+    max_steps: int = 15,
     timeout_seconds: int = 600,
     trace: Optional[Trace] = None,
     clock: Callable[[], float] = time.monotonic,

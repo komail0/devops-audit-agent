@@ -30,11 +30,11 @@ Configuration is read from `.env` (never committed):
 | `LLM_BASE_URL` | Base URL of an OpenAI-compatible chat API |
 | `LLM_API_KEY` | API key for that provider |
 | `LLM_MODEL` | Model name; it must support tool calling |
-| `AGENT_MAX_STEPS` | Optional cap on agent steps |
+| `AGENT_MAX_STEPS` | Optional cap on LLM turns (default 15) |
 | `AGENT_TIMEOUT_SECONDS` | Optional wall-clock limit for a run |
 | `LLM_MIN_INTERVAL_SECONDS` | Optional minimum gap between LLM requests, for providers with strict per-minute quotas (default 0) |
 
-`.env` is read from the current directory, then the project root; real environment variables take precedence. Defaults: 30 steps, 600 seconds. The API key is never printed, and is redacted from error messages.
+`.env` is read from the current directory, then the project root; real environment variables take precedence. Defaults: 15 steps, 600 seconds. The API key is never printed, and is redacted from error messages.
 
 ## What exists so far
 
@@ -49,6 +49,7 @@ Configuration is read from `.env` (never committed):
   - at most 8 calls per turn
   - compaction of old tool output
   - a step cap (`AGENT_MAX_STEPS` counts LLM turns) and a wall-clock timeout; when either is reached it asks once for a final report from the evidence gathered, and raises an error rather than inventing one if none comes
+- `devops_agent/prompts.py`: the system prompt, where the audit judgement lives: inspection areas, acceptable alternatives (so optional files with equivalents are not flagged), evidence rules, a severity rubric, a rule-id catalogue, and an instruction to batch tool calls to save requests. Tools report facts only; the model decides what is a violation.
 - `devops_agent/schema.py`: severity and category vocabulary and the `submit_report` tool definition.
 - `devops_agent/trace.py`: redacted record of every assistant note and tool call, for auditing a run.
 - `tools.py`: read-only inspection tools bound to the cloned repository, with JSON schemas (`TOOL_SPECS`) for LLM tool calling. Tools return plain-text observations, never raise, and apply redaction and size caps to all output.
