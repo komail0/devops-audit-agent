@@ -252,3 +252,19 @@ def test_tool_specs_match_registry(repo):
     for spec in TOOL_SPECS:
         assert spec["type"] == "function"
         assert spec["function"]["parameters"]["type"] == "object"
+
+
+def test_read_file_stops_at_char_budget_and_points_to_next_line(repo, monkeypatch):
+    monkeypatch.setattr(tools, "MAX_READ_CHARS", 300)
+    (repo.root / "wordy.txt").write_text("\n".join("w" * 80 for _ in range(50)))
+    out = repo.read_file("wordy.txt")
+    shown = [line for line in out.splitlines() if "| w" in line]
+    assert 1 <= len(shown) < 10
+    assert f"start_line={len(shown) + 1}]" in out
+    assert f"lines 1-{len(shown)} of 50" in out
+
+
+def test_read_file_always_returns_at_least_one_line(repo, monkeypatch):
+    monkeypatch.setattr(tools, "MAX_READ_CHARS", 1)
+    (repo.root / "one.txt").write_text("a\nb\n")
+    assert "    1| a" in repo.read_file("one.txt")

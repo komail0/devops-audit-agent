@@ -165,3 +165,91 @@ def test_non_dict_extra_content_ignored():
     raw.extra_content = "unexpected"
     client, _, _ = _client([_response(tool_calls=[raw])])
     assert client.chat([]).tool_calls[0].extra_content is None
+
+
+# ---- rate-limit handling -------------------------------------------------------
+
+def _rate_limit(message="boom", headers=None):
+    response = httpx.Response(429, request=REQUEST, headers=headers or {})
+    return openai.RateLimitError(message, response=response, body=None)
+
+
+@pytest.mark.parametrize(
+    "message, expected_wait",
+    [
+        ("Quota exceeded. Please retry in 23.5s.", 24.5),
+        ("{'error': {'details': [{'retryDelay': '41s'}]}}", 42),
+        ('"retryDelay": "7s"', 8),
+    ],
+)
+def test_server_retry_hint_in_body_is_honoured(message, expected_wait):
+    client, _, sleeps = _client([_rate_limit(message), _response(content="ok")], delays=(5, 5, 5))
+    assert client.chat([]).content == "ok"
+    assert sleeps == [expected_wait]
+
+
+def test_retry_after_header_is_honoured():
+    client, _, sleeps = _client([_rate_limit(headers={"retry-after": "12"}), _response(content="ok")], delays=(1, 1, 1))
+    client.chat([])
+    assert sleeps == [13]
+
+
+def test_unparseable_hint_falls_back_to_default_delay():
+    client, _, sleeps = _client([_rate_limit(headers={"retry-after": "soon"}), _response(content="ok")], delays=(4, 4, 4))
+    client.chat([])
+    assert sleeps == [4]
+
+
+def test_very_long_server_wait_fails_fast():
+    client, completions, sleeps = _client([_rate_limit("retry in 72000s"), _response(content="never")])
+    with pytest.raises(LLMError, match="asks to wait 72000s"):
+        client.chat([])
+    assert len(completions.requests) == 1 and sleeps == []
+
+
+def test_default_backoff_covers_a_full_minute_window():
+    from devops_agent.llm import RETRY_DELAYS_SECONDS
+
+    assert sum(RETRY_DELAYS_SECONDS) >= 90 and len(RETRY_DELAYS_SECONDS) >= 4
+
+
+def test_error_detail_is_long_enough_to_show_the_quota():
+    long_message = "x" * 650 + " QUOTA-NAME"
+    client, _, _ = _client([_status_error(openai.BadRequestError, 400, long_message)])
+    with pytest.raises(LLMError, match="QUOTA-NAME"):
+        client.chat([])
+
+
+# ---- request spacing -----------------------------------------------------------
+
+def _spaced_client(interval, outcomes):
+    config = Config(base_url="http://x", api_key="sk-secretvalue12345", model="m", min_interval_seconds=interval)
+    now = [100.0]
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    completions = FakeCompletions(outcomes)
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    return LLMClient(config, client=fake, sleep=sleep, clock=lambda: now[0]), now, sleeps
+
+
+def test_min_interval_spaces_consecutive_requests():
+    client, now, sleeps = _spaced_client(10, [_response(content="a"), _response(content="b"), _response(content="c")])
+    client.chat([])
+    assert sleeps == []  # first request goes straight out
+    now[0] += 4
+    client.chat([])
+    assert sleeps == [6]
+    now[0] += 30  # already past the interval: no wait
+    client.chat([])
+    assert sleeps == [6]
+
+
+def test_no_spacing_by_default():
+    client, now, sleeps = _client([_response(content="a"), _response(content="b")])
+    client.chat([])
+    client.chat([])
+    assert sleeps == []

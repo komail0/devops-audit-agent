@@ -45,6 +45,19 @@ def _positive_int(environ: Mapping[str, str], name: str, default: int) -> int:
     return value
 
 
+def _non_negative_float(environ: Mapping[str, str], name: str, default: float) -> float:
+    raw = (environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a non-negative number, got {raw!r}") from None
+    if value < 0:
+        raise ConfigError(f"{name} must be a non-negative number, got {raw!r}")
+    return value
+
+
 @dataclass(frozen=True)
 class Config:
     base_url: str
@@ -52,6 +65,7 @@ class Config:
     model: str
     max_steps: int = DEFAULT_MAX_STEPS
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
+    min_interval_seconds: float = 0.0
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "Config":
@@ -69,6 +83,7 @@ class Config:
             model=environ["LLM_MODEL"].strip(),
             max_steps=_positive_int(environ, "AGENT_MAX_STEPS", DEFAULT_MAX_STEPS),
             timeout_seconds=_positive_int(environ, "AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
+            min_interval_seconds=_non_negative_float(environ, "LLM_MIN_INTERVAL_SECONDS", 0.0),
         )
 
     def secrets(self) -> List[str]:

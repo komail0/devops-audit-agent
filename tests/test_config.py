@@ -68,3 +68,15 @@ def test_load_config_reads_cwd_then_project_root(tmp_path, monkeypatch):
     (root / ".env").write_text("LLM_MODEL=root-model\nLLM_API_KEY=k-12345678\nLLM_BASE_URL=http://x\n")
     cfg = load_config(root, cwd=cwd)
     assert cfg.model == "cwd-model" and cfg.api_key == "k-12345678"
+
+
+def test_min_interval_default_and_parsing():
+    assert Config.from_env(BASE).min_interval_seconds == 0
+    assert Config.from_env({**BASE, "LLM_MIN_INTERVAL_SECONDS": "12.5"}).min_interval_seconds == 12.5
+    assert Config.from_env({**BASE, "LLM_MIN_INTERVAL_SECONDS": ""}).min_interval_seconds == 0
+
+
+@pytest.mark.parametrize("bad", ["fast", "-1"])
+def test_min_interval_rejects_invalid(bad):
+    with pytest.raises(ConfigError):
+        Config.from_env({**BASE, "LLM_MIN_INTERVAL_SECONDS": bad})

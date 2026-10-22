@@ -32,6 +32,7 @@ Configuration is read from `.env` (never committed):
 | `LLM_MODEL` | Model name; it must support tool calling |
 | `AGENT_MAX_STEPS` | Optional cap on agent steps |
 | `AGENT_TIMEOUT_SECONDS` | Optional wall-clock limit for a run |
+| `LLM_MIN_INTERVAL_SECONDS` | Optional minimum gap between LLM requests, for providers with strict per-minute quotas (default 0) |
 
 `.env` is read from the current directory, then the project root; real environment variables take precedence. Defaults: 30 steps, 600 seconds. The API key is never printed, and is redacted from error messages.
 
@@ -40,7 +41,7 @@ Configuration is read from `.env` (never committed):
 - `devops_agent/repo.py`: validates GitHub URLs and clones the target into a throwaway temp folder, with git hooks, submodules, LFS downloads, the file protocol and credential prompts disabled, and a clone timeout. The folder is deleted afterwards.
 - `devops_agent/redact.py`: replaces secret values (known token formats, private keys, credential assignments, URL passwords) with `[REDACTED:<type>]` markers. It is meant to run on all tool output, logs and report text. Quoted literals and unquoted secret-looking values are redacted, while code such as `password = get_password(x)` is left readable so evidence is not mangled. Limitation: an unquoted lowercase snake_case secret is indistinguishable from a variable name and is not redacted.
 - `devops_agent/config.py`: loads and validates the settings above; a missing required variable fails with a message naming it.
-- `devops_agent/llm.py`: thin client for any OpenAI-compatible chat API with tool calling. It sends messages, parses tool calls (tolerating malformed argument JSON), retries rate-limit, timeout, connection and 5xx errors with backoff, and fails fast on authentication or bad-request errors. It echoes provider-specific tool-call metadata (such as Gemini thought signatures) back unchanged, as those APIs require. It makes no decisions about which tools to call.
+- `devops_agent/llm.py`: thin client for any OpenAI-compatible chat API with tool calling. It sends messages, parses tool calls (tolerating malformed argument JSON), retries rate-limit, timeout, connection and 5xx errors with backoff (waiting as long as the server asks, up to 90 s), and fails fast on authentication or bad-request errors or when the server asks for a much longer wait, such as an exhausted daily quota. Error messages keep enough detail to show which quota was hit. It echoes provider-specific tool-call metadata (such as Gemini thought signatures) back unchanged, as those APIs require. It makes no decisions about which tools to call.
 - `devops_agent/agent_loop.py`: the agent loop. The LLM chooses every tool call from the observations so far and ends the audit by calling `submit_report`. The loop executes calls, labels each result `[step N]` so findings can cite their evidence, and returns tool errors as observations so the model can recover. It also handles:
   - plain-text replies (nudged to call a tool, never accepted as a report)
   - malformed arguments

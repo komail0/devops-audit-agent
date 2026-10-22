@@ -29,7 +29,8 @@ MAX_PATTERN_CHARS = 300
 SEARCH_TIME_BUDGET_SECONDS = 10
 MAX_GIT_LOG_COUNT = 100
 GIT_TIMEOUT_SECONDS = 20
-MAX_OUTPUT_CHARS = 30_000
+MAX_READ_CHARS = 12_000
+MAX_OUTPUT_CHARS = 16_000
 
 
 class ToolError(Exception):
@@ -380,12 +381,16 @@ class Toolbox:
         all_lines = text.splitlines()
         if start > len(all_lines):
             raise ToolError(f"start_line {start} is past the end of the file ({len(all_lines)} lines)")
-        chunk = all_lines[start - 1 : end]
-        body = "\n".join(
-            f"{start + i:>5}| {line[:MAX_LINE_CHARS]}{'...' if len(line) > MAX_LINE_CHARS else ''}"
-            for i, line in enumerate(chunk)
-        )
-        last = start + len(chunk) - 1
+        rendered: List[str] = []
+        used = 0
+        for i, line in enumerate(all_lines[start - 1 : end]):
+            row = f"{start + i:>5}| {line[:MAX_LINE_CHARS]}{'...' if len(line) > MAX_LINE_CHARS else ''}"
+            if rendered and used + len(row) > MAX_READ_CHARS:
+                break
+            rendered.append(row)
+            used += len(row) + 1
+        body = "\n".join(rendered)
+        last = start + len(rendered) - 1
         total_note = f"{len(all_lines)}+" if byte_truncated else str(len(all_lines))
         out = f"# {self._relative(target)} (lines {start}-{last} of {total_note})\n{body}"
         if last < len(all_lines):
