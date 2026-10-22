@@ -38,9 +38,9 @@ Configuration is read from `.env` (never committed):
 ## What exists so far
 
 - `devops_agent/repo.py`: validates GitHub URLs and clones the target into a throwaway temp folder, with git hooks, submodules, LFS downloads, the file protocol and credential prompts disabled, and a clone timeout. The folder is deleted afterwards.
-- `devops_agent/redact.py`: replaces secret values (known token formats, private keys, credential assignments, URL passwords) with `[REDACTED:<type>]` markers. It is meant to run on all tool output, logs and report text.
+- `devops_agent/redact.py`: replaces secret values (known token formats, private keys, credential assignments, URL passwords) with `[REDACTED:<type>]` markers. It is meant to run on all tool output, logs and report text. Quoted literals and unquoted secret-looking values are redacted, while code such as `password = get_password(x)` is left readable so evidence is not mangled. Limitation: an unquoted lowercase snake_case secret is indistinguishable from a variable name and is not redacted.
 - `devops_agent/config.py`: loads and validates the settings above; a missing required variable fails with a message naming it.
-- `devops_agent/llm.py`: thin client for any OpenAI-compatible chat API with tool calling. It sends messages, parses tool calls (tolerating malformed argument JSON), retries rate-limit, timeout, connection and 5xx errors with backoff, and fails fast on authentication or bad-request errors. It makes no decisions about which tools to call.
+- `devops_agent/llm.py`: thin client for any OpenAI-compatible chat API with tool calling. It sends messages, parses tool calls (tolerating malformed argument JSON), retries rate-limit, timeout, connection and 5xx errors with backoff, and fails fast on authentication or bad-request errors. It echoes provider-specific tool-call metadata (such as Gemini thought signatures) back unchanged, as those APIs require. It makes no decisions about which tools to call.
 - `tools.py`: read-only inspection tools bound to the cloned repository, with JSON schemas (`TOOL_SPECS`) for LLM tool calling. Tools return plain-text observations, never raise, and apply redaction and size caps to all output.
 
   | Tool | Purpose |

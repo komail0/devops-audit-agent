@@ -47,9 +47,27 @@ _NOT_A_SECRET = re.compile(
 )
 
 
+_OPENING_QUOTE = re.compile(r"[:=]\s*[\"']$")
+_ATTRIBUTE_CHAIN = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
+_SNAKE_IDENTIFIER = re.compile(r"^[a-z]+(_[a-z0-9]+)+$")
+_ASSIGNED_NAME = re.compile(r"([A-Za-z_][\w-]*)[\"']?\s*[:=]")
+
+
+def _looks_like_code(prefix: str, value: str) -> bool:
+    """Unquoted values that read as expressions or variable names, not literal credentials."""
+    if "(" in value or "[" in value:
+        return True
+    if _ATTRIBUTE_CHAIN.match(value) or _SNAKE_IDENTIFIER.match(value):
+        return True
+    name = _ASSIGNED_NAME.search(prefix)
+    return bool(name) and name.group(1).lower() == value.lower()
+
+
 def _assignment_sub(match: "re.Match[str]") -> str:
-    value = match.group(2)
+    prefix, value = match.group(1), match.group(2)
     if _NOT_A_SECRET.match(value):
+        return match.group(0)
+    if not _OPENING_QUOTE.search(prefix) and _looks_like_code(prefix, value):
         return match.group(0)
     return f"{match.group(1)}[REDACTED:credential]"
 

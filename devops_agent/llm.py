@@ -29,6 +29,8 @@ class ToolCall:
     name: str
     arguments: Dict[str, Any]
     parse_error: Optional[str] = None
+    # Provider metadata that must be echoed back with the call (e.g. Gemini thought signatures).
+    extra_content: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -37,18 +39,22 @@ class LLMReply:
     tool_calls: List[ToolCall] = field(default_factory=list)
     finish_reason: Optional[str] = None
 
+    @staticmethod
+    def _call_message(call: ToolCall) -> Dict[str, Any]:
+        entry: Dict[str, Any] = {
+            "id": call.id,
+            "type": "function",
+            "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+        }
+        if call.extra_content:
+            entry["extra_content"] = call.extra_content
+        return entry
+
     def as_message(self) -> Dict[str, Any]:
         """The assistant message to append to the conversation history."""
         message: Dict[str, Any] = {"role": "assistant", "content": self.content or None}
         if self.tool_calls:
-            message["tool_calls"] = [
-                {
-                    "id": call.id,
-                    "type": "function",
-                    "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
-                }
-                for call in self.tool_calls
-            ]
+            message["tool_calls"] = [self._call_message(call) for call in self.tool_calls]
         return message
 
 
@@ -121,12 +127,14 @@ class LLMClient:
         for index, raw_call in enumerate(getattr(message, "tool_calls", None) or []):
             function = raw_call.function
             arguments, error = _parse_arguments(getattr(function, "arguments", None))
+            extra = getattr(raw_call, "extra_content", None)
             calls.append(
                 ToolCall(
                     id=getattr(raw_call, "id", None) or f"call_{index}",
                     name=getattr(function, "name", "") or "",
                     arguments=arguments,
                     parse_error=error,
+                    extra_content=extra if isinstance(extra, dict) else None,
                 )
             )
         return LLMReply(

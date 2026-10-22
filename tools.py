@@ -223,7 +223,8 @@ def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
     if secret_names:
         facts.append("secrets referenced: " + ", ".join(secret_names))
     for kind, hits in detected.items():
-        facts.append(f"{kind} commands found by keyword match: " + ("; ".join(hits[:8]) if hits else "none"))
+        found = "; ".join(hits[:8]) if hits else "none (they may run via make, scripts or other tools; read those before concluding)"
+        facts.append(f"{kind} commands found by keyword match in run steps: {found}")
 
     lines.append("facts:")
     lines += [f"  - {fact}" for fact in facts] or ["  (none)"]

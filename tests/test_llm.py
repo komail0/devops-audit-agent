@@ -147,3 +147,21 @@ def test_error_messages_never_contain_the_api_key():
         client.chat([])
     assert CONFIG.api_key not in str(info.value)
     assert "HTTP 401" in str(info.value)
+
+
+def test_extra_content_is_preserved_and_echoed_back():
+    signature = {"google": {"thought_signature": "opaque-value"}}
+    raw = _call()
+    raw.extra_content = signature
+    client, _, _ = _client([_response(tool_calls=[raw, _call(call_id="c2")])])
+    reply = client.chat([])
+    assert reply.tool_calls[0].extra_content == signature and reply.tool_calls[1].extra_content is None
+    sent = reply.as_message()["tool_calls"]
+    assert sent[0]["extra_content"] == signature and "extra_content" not in sent[1]
+
+
+def test_non_dict_extra_content_ignored():
+    raw = _call()
+    raw.extra_content = "unexpected"
+    client, _, _ = _client([_response(tool_calls=[raw])])
+    assert client.chat([]).tool_calls[0].extra_content is None

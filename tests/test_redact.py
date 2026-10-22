@@ -115,3 +115,33 @@ def test_redact_object_recurses():
     out = redact_object(obj)
     assert AWS not in str(out) and PASSWORD not in str(out)
     assert out["n"] == 3
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "username, password = get_auth_from_url(proxy)",
+        "auth = HTTPBasicAuth(username, password=password)",
+        "self.password = self.config_password",
+        "password = user_supplied_password",
+        'headers = {"password": password, "x": 1}',
+        "token = request.session.token_value",
+        "api_key = settings.API_KEY_VALUE",
+        "secret_key = secrets[name_of_key]",
+    ],
+)
+def test_code_expressions_are_not_mangled(line):
+    assert redact(line) == line
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'password = "get_auth_from_url"',
+        "PASSWORD=supersecretvalue",
+        "password: Abc.12345xyz!",
+        'password = "user_supplied_password"',
+    ],
+)
+def test_literal_credentials_still_redacted(line):
+    assert "[REDACTED:credential]" in redact(line)

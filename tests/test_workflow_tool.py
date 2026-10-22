@@ -66,9 +66,9 @@ def test_healthy_workflow_facts(tmp_path):
     assert "push (branches: ['main'])" in out and "  - pull_request" in out
     assert "permissions (workflow level): {'contents': 'read'}" in out
     assert "commit sha" in out and "version tag" in out
-    assert "test commands found by keyword match: job test step 5: pytest" in out
-    assert "lint commands found by keyword match: job test step 4: ruff" in out
-    assert "build commands found by keyword match: none" in out
+    assert "test commands found by keyword match in run steps: job test step 5: pytest" in out
+    assert "lint commands found by keyword match in run steps: job test step 4: ruff" in out
+    assert "build commands found by keyword match in run steps: none (they may run via make" in out
     for risky in ("pull_request_target", "continue-on-error", "`|| true`", "not pinned", "no explicit permissions"):
         assert risky not in out
 
