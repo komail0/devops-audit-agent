@@ -117,6 +117,7 @@ def main(
                 build_system_prompt(config.max_steps),
                 max_steps=config.max_steps,
                 timeout_seconds=config.timeout_seconds,
+                context_chars=config.context_chars,
                 trace=trace,
             )
             report, notes = build_report(canonical_url, result.violations, workspace, result.executed_steps, secrets)

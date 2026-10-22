@@ -236,9 +236,7 @@ def test_llm_failure_propagates(box):
         run(ScriptedLLM([LLMError("down")]), box)
 
 
-def test_old_tool_outputs_are_compacted_but_stay_citable(box, monkeypatch):
-    monkeypatch.setattr(agent_loop, "MAX_CONTEXT_CHARS", 600)
-    monkeypatch.setattr(agent_loop, "KEEP_RECENT_TOOL_MESSAGES", 1)
+def test_old_tool_outputs_are_compacted_but_stay_citable(box):
     (box.root / "big.txt").write_text("x" * 500)
     script = [
         LLMReply("", [call("read_file", {"path": "big.txt"}, "c1")]),
@@ -247,7 +245,7 @@ def test_old_tool_outputs_are_compacted_but_stay_citable(box, monkeypatch):
         submit(),
     ]
     llm = ScriptedLLM(script)
-    run(llm, box)
+    run(llm, box, context_chars=600)
     contents = [m["content"] for m in tool_messages(llm)]
     assert contents[0].startswith("[step 1]") and "omitted to save context" in contents[0]
     assert "read_file" in contents[0]
@@ -280,3 +278,29 @@ def test_submit_spec_is_well_formed():
     assert function["name"] == SUBMIT_REPORT
     assert set(item["required"]) >= {"rule_id", "category", "severity", "file", "line", "evidence_refs"}
     assert item["properties"]["severity"]["enum"] == ["critical", "high", "medium", "low"]
+
+
+def test_latest_turn_results_are_never_compacted_even_over_budget(box):
+    (box.root / "a.txt").write_text("a" * 900)
+    (box.root / "b.txt").write_text("b" * 900)
+    reply = LLMReply("", [call("read_file", {"path": "a.txt"}, "c1"), call("read_file", {"path": "b.txt"}, "c2")])
+    llm = ScriptedLLM([reply, submit()])
+    run(llm, box, context_chars=700)
+    contents = [m["content"] for m in tool_messages(llm)]
+    assert len(contents) == 2 and all("omitted" not in c for c in contents)
+    assert "a" * 100 in contents[0] and "b" * 100 in contents[1]
+
+
+def test_single_huge_result_is_truncated_to_the_context_budget(box):
+    (box.root / "huge.txt").write_text("\n".join("x" * 100 for _ in range(300)))
+    llm = ScriptedLLM([LLMReply("", [call("read_file", {"path": "huge.txt"})]), submit()])
+    run(llm, box, context_chars=4000)
+    content = tool_messages(llm)[0]["content"]
+    assert len(content) < 1500 + 200 and "truncated to fit the context budget" in content
+    assert content.startswith("[step 1]")
+
+
+def test_default_budget_does_not_truncate_normal_results(box):
+    llm = ScriptedLLM([LLMReply("", [call("list_files")]), submit()])
+    run(llm, box)
+    assert "truncated to fit" not in tool_messages(llm)[0]["content"]

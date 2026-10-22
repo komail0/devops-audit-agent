@@ -46,6 +46,7 @@ Configuration is read from `.env` (never committed):
 | `AGENT_MAX_STEPS` | Optional cap on LLM turns (default 15) |
 | `AGENT_TIMEOUT_SECONDS` | Optional wall-clock limit for a run |
 | `LLM_MIN_INTERVAL_SECONDS` | Optional minimum gap between LLM requests, for providers with strict per-minute quotas (default 0) |
+| `LLM_CONTEXT_CHARS` | Optional budget for tool output kept in the conversation (default 80000). Older output is replaced by one-line stubs and each result is capped to a quarter of the budget. Use about 10000 for providers limited to a few thousand tokens per minute |
 
 `.env` is read from the current directory, then the project root; real environment variables take precedence. Defaults: 15 steps, 600 seconds. The API key is never printed, and is redacted from error messages.
 

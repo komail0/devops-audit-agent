@@ -7,6 +7,7 @@ from typing import Dict, List, Mapping, Optional
 
 DEFAULT_MAX_STEPS = 15
 DEFAULT_TIMEOUT_SECONDS = 600
+DEFAULT_CONTEXT_CHARS = 80_000
 
 
 class ConfigError(Exception):
@@ -66,6 +67,7 @@ class Config:
     max_steps: int = DEFAULT_MAX_STEPS
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     min_interval_seconds: float = 0.0
+    context_chars: int = DEFAULT_CONTEXT_CHARS
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "Config":
@@ -84,6 +86,7 @@ class Config:
             max_steps=_positive_int(environ, "AGENT_MAX_STEPS", DEFAULT_MAX_STEPS),
             timeout_seconds=_positive_int(environ, "AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
             min_interval_seconds=_non_negative_float(environ, "LLM_MIN_INTERVAL_SECONDS", 0.0),
+            context_chars=_positive_int(environ, "LLM_CONTEXT_CHARS", DEFAULT_CONTEXT_CHARS),
         )
 
     def secrets(self) -> List[str]:

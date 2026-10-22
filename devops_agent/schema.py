@@ -56,7 +56,7 @@ SUBMIT_REPORT_SPEC: Dict[str, Any] = {
                         "properties": {
                             "rule_id": {
                                 "type": "string",
-                                "description": "Stable id such as SEC-001, CI-002, HYG-001, DEP-001, TEST-001, QUAL-001, CFG-001, COLLAB-001, BUILD-001.",
+                                "description": "PREFIX-NNN from the catalogue, e.g. SEC-001.",
                             },
                             "category": {"type": "string", "enum": list(CATEGORIES)},
                             "severity": {"type": "string", "enum": list(SEVERITIES)},

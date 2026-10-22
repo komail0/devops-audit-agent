@@ -17,7 +17,7 @@ from tools import TOOL_SPECS, Toolbox
 MAX_TOOL_CALLS_PER_TURN = 8
 MAX_CONSECUTIVE_NUDGES = 3
 MAX_CONTEXT_CHARS = 80_000
-KEEP_RECENT_TOOL_MESSAGES = 4
+MIN_RESULT_CHARS = 1500
 OMITTED_MARKER = "(output omitted to save context"
 
 
@@ -44,12 +44,18 @@ def _first_user_message(repo_url: str, overview: str) -> str:
 
 
 def _compact(messages: List[Dict[str, Any]], meta: Dict[str, str], limit: int) -> None:
-    """Replace the oldest tool outputs with one-line stubs until the history fits the budget."""
-    total = sum(len(str(m.get("content") or "")) for m in messages)
+    """Replace the oldest tool outputs with one-line stubs until their total size fits the budget.
+
+    Results from the latest turn are never stubbed: the model has not seen them yet.
+    """
+    tool_indexes = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    total = sum(len(messages[i]["content"]) for i in tool_indexes)
     if total <= limit:
         return
-    tool_indexes = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
-    for index in tool_indexes[:-KEEP_RECENT_TOOL_MESSAGES]:
+    last_assistant = max((i for i, m in enumerate(messages) if m.get("role") == "assistant"), default=-1)
+    for index in tool_indexes:
+        if index > last_assistant:
+            break
         message = messages[index]
         if OMITTED_MARKER in message["content"]:
             continue
@@ -77,6 +83,7 @@ def run_agent(
     system_prompt: str,
     max_steps: int = 15,
     timeout_seconds: int = 600,
+    context_chars: int = MAX_CONTEXT_CHARS,
     trace: Optional[Trace] = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AgentResult:
@@ -152,8 +159,14 @@ def run_agent(
                     result = toolbox.execute(call.name, call.arguments)
                     trace.tool_call(step, call.name, call.arguments, result, time.monotonic() - started)
                     content = f"[step {step}] {result}"
+            result_limit = max(MIN_RESULT_CHARS, context_chars // 4)
+            if len(content) > result_limit:
+                content = (
+                    content[:result_limit]
+                    + "\n[truncated to fit the context budget; use a narrower path, pattern or line range]"
+                )
             messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
-        _compact(messages, meta, MAX_CONTEXT_CHARS)
+        _compact(messages, meta, context_chars)
 
     return _forced_report(llm, messages, stop_reason, turns, step, executed, trace)
 

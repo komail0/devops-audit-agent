@@ -80,3 +80,12 @@ def test_min_interval_default_and_parsing():
 def test_min_interval_rejects_invalid(bad):
     with pytest.raises(ConfigError):
         Config.from_env({**BASE, "LLM_MIN_INTERVAL_SECONDS": bad})
+
+
+def test_context_chars_default_override_and_validation():
+    assert Config.from_env(BASE).context_chars == 80_000
+    assert Config.from_env({**BASE, "LLM_CONTEXT_CHARS": "12000"}).context_chars == 12000
+    assert Config.from_env({**BASE, "LLM_CONTEXT_CHARS": ""}).context_chars == 80_000
+    for bad in ("abc", "0", "-5"):
+        with pytest.raises(ConfigError):
+            Config.from_env({**BASE, "LLM_CONTEXT_CHARS": bad})
