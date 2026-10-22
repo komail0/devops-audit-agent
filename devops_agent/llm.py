@@ -1,0 +1,136 @@
+"""Thin wrapper over an OpenAI-compatible chat API with tool calling.
+
+The wrapper only sends messages and parses the reply. Deciding which tool to
+call and what to do with results is the agent loop's job.
+"""
+
+import json
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Sequence
+
+import openai
+from openai import OpenAI
+
+from devops_agent.config import Config
+from devops_agent.redact import redact
+
+REQUEST_TIMEOUT_SECONDS = 90
+RETRY_DELAYS_SECONDS = (2, 6, 15)
+
+
+class LLMError(Exception):
+    """The LLM could not be reached or rejected the request; the audit cannot continue."""
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+    parse_error: Optional[str] = None
+
+
+@dataclass
+class LLMReply:
+    content: str
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    finish_reason: Optional[str] = None
+
+    def as_message(self) -> Dict[str, Any]:
+        """The assistant message to append to the conversation history."""
+        message: Dict[str, Any] = {"role": "assistant", "content": self.content or None}
+        if self.tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+                }
+                for call in self.tool_calls
+            ]
+        return message
+
+
+_RETRIABLE = (openai.RateLimitError, openai.APIConnectionError, openai.APITimeoutError, openai.InternalServerError)
+
+
+def _parse_arguments(raw: Any) -> "tuple[Dict[str, Any], Optional[str]]":
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return {}, None
+    if isinstance(raw, dict):
+        return raw, None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}, "tool arguments were not valid JSON"
+    if not isinstance(parsed, dict):
+        return {}, "tool arguments must be a JSON object"
+    return parsed, None
+
+
+class LLMClient:
+    def __init__(
+        self,
+        config: Config,
+        client: Optional[Any] = None,
+        sleep: Callable[[float], None] = time.sleep,
+        retry_delays: Sequence[float] = RETRY_DELAYS_SECONDS,
+    ):
+        self._config = config
+        self._client = client or OpenAI(
+            api_key=config.api_key, base_url=config.base_url, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0
+        )
+        self._sleep = sleep
+        self._retry_delays = tuple(retry_delays)
+
+    def chat(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> LLMReply:
+        kwargs: Dict[str, Any] = {"model": self._config.model, "messages": messages, "temperature": 0}
+        if tools:
+            kwargs.update(tools=tools, tool_choice="auto")
+        response = self._request_with_retries(kwargs)
+        return self._parse(response)
+
+    def _request_with_retries(self, kwargs: Dict[str, Any]) -> Any:
+        attempts = len(self._retry_delays) + 1
+        for attempt in range(attempts):
+            try:
+                return self._client.chat.completions.create(**kwargs)
+            except _RETRIABLE as exc:
+                if attempt == attempts - 1:
+                    raise LLMError(f"LLM request failed after {attempts} attempts: {self._describe(exc)}") from None
+                self._sleep(self._retry_delays[attempt])
+            except openai.OpenAIError as exc:
+                raise LLMError(f"LLM request rejected: {self._describe(exc)}") from None
+        raise LLMError("LLM request failed")  # unreachable; keeps type checkers satisfied
+
+    def _describe(self, exc: Exception) -> str:
+        status = getattr(exc, "status_code", None)
+        detail = redact(str(getattr(exc, "message", None) or exc), self._config.secrets())[:300]
+        prefix = f"{type(exc).__name__}" + (f" (HTTP {status})" if status else "")
+        return f"{prefix}: {detail}"
+
+    @staticmethod
+    def _parse(response: Any) -> LLMReply:
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            return LLMReply(content="", finish_reason=None)
+        choice = choices[0]
+        message = choice.message
+        calls: List[ToolCall] = []
+        for index, raw_call in enumerate(getattr(message, "tool_calls", None) or []):
+            function = raw_call.function
+            arguments, error = _parse_arguments(getattr(function, "arguments", None))
+            calls.append(
+                ToolCall(
+                    id=getattr(raw_call, "id", None) or f"call_{index}",
+                    name=getattr(function, "name", "") or "",
+                    arguments=arguments,
+                    parse_error=error,
+                )
+            )
+        return LLMReply(
+            content=getattr(message, "content", None) or "",
+            tool_calls=calls,
+            finish_reason=getattr(choice, "finish_reason", None),
+        )

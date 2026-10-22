@@ -33,10 +33,14 @@ Configuration is read from `.env` (never committed):
 | `AGENT_MAX_STEPS` | Optional cap on agent steps |
 | `AGENT_TIMEOUT_SECONDS` | Optional wall-clock limit for a run |
 
+`.env` is read from the current directory, then the project root; real environment variables take precedence. Defaults: 30 steps, 600 seconds. The API key is never printed, and is redacted from error messages.
+
 ## What exists so far
 
 - `devops_agent/repo.py`: validates GitHub URLs and clones the target into a throwaway temp folder, with git hooks, submodules, LFS downloads, the file protocol and credential prompts disabled, and a clone timeout. The folder is deleted afterwards.
 - `devops_agent/redact.py`: replaces secret values (known token formats, private keys, credential assignments, URL passwords) with `[REDACTED:<type>]` markers. It is meant to run on all tool output, logs and report text.
+- `devops_agent/config.py`: loads and validates the settings above; a missing required variable fails with a message naming it.
+- `devops_agent/llm.py`: thin client for any OpenAI-compatible chat API with tool calling. It sends messages, parses tool calls (tolerating malformed argument JSON), retries rate-limit, timeout, connection and 5xx errors with backoff, and fails fast on authentication or bad-request errors. It makes no decisions about which tools to call.
 - `tools.py`: read-only inspection tools bound to the cloned repository, with JSON schemas (`TOOL_SPECS`) for LLM tool calling. Tools return plain-text observations, never raise, and apply redaction and size caps to all output.
 
   | Tool | Purpose |
