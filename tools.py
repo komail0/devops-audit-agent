@@ -171,7 +171,7 @@ def summarize_workflow(rel_path: str, data: Dict[Any, Any]) -> str:
         if job.get("continue-on-error") is True:
             facts.append(f"job {job_id} has continue-on-error: true")
         if job.get("secrets") == "inherit":
-            facts.append(f"job {job_id} passes all secrets with `secrets: inherit`")
+            facts.append(f"job {job_id} passes all secrets to the called workflow (secrets set to inherit)")
         if "uses" in job:
             pins.setdefault(_pin_kind(str(job["uses"])), []).append(f"{job_id}: {job['uses']}")
 

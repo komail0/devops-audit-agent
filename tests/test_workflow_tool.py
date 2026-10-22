@@ -85,7 +85,7 @@ def test_risky_workflow_facts(tmp_path):
     assert "actions not pinned to a tag or sha (branch or other ref)" in out
     assert "build step 1: actions/checkout@main" in out
     assert "secrets referenced: DEPLOY_TOKEN" in out
-    assert "job reuse passes all secrets with `secrets: inherit`" in out
+    assert "job reuse passes all secrets to the called workflow (secrets set to inherit)" in out
 
 
 def test_on_key_boolean_quirk_and_scalar_forms(tmp_path):
@@ -156,3 +156,11 @@ def test_hostile_yaml_does_not_execute(tmp_path):
     content = "on: !!python/object/apply:os.system ['echo pwned']\njobs: {}\n"
     out = _box(tmp_path, content).execute("parse_workflow", {"path": ".github/workflows/ci.yml"})
     assert out.startswith("ERROR")
+
+
+def test_facts_survive_the_redactor_when_called_through_execute(tmp_path):
+    """The agent only ever sees execute() output, which is redacted: facts must not be mangled by it."""
+    out = _box(tmp_path, RISKY).execute("parse_workflow", {"path": ".github/workflows/ci.yml"})
+    assert "[REDACTED" not in out
+    assert "secrets set to inherit" in out and "secrets referenced: DEPLOY_TOKEN" in out
+    assert "`|| true`" in out and "continue-on-error: true" in out
