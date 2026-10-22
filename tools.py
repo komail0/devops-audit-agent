@@ -31,6 +31,10 @@ MAX_GIT_LOG_COUNT = 100
 GIT_TIMEOUT_SECONDS = 20
 MAX_READ_CHARS = 12_000
 MAX_OUTPUT_CHARS = 16_000
+REDACTION_NOTE = (
+    "\n[note: [REDACTED:...] marks a literal secret value that is present in the repository and hidden from you. "
+    "It is evidence of a hardcoded credential unless the file is a test fixture, an example or a placeholder.]"
+)
 
 
 class ToolError(Exception):
@@ -271,6 +275,8 @@ class Toolbox:
         result = redact(result)
         if len(result) > MAX_OUTPUT_CHARS:
             result = result[:MAX_OUTPUT_CHARS] + "\n[output truncated]"
+        if "[REDACTED:" in result:
+            result += REDACTION_NOTE
         return result
 
     # ---- path safety ------------------------------------------------------

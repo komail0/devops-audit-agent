@@ -25,7 +25,11 @@ read_file gives exact line numbers).
 verification, debug flags) and git_status/git_log for tracked junk or secrets committed earlier.
 3. Verify: before reporting anything, make sure a tool result shows it. If a parse_workflow fact or a search hit \
 looks suspicious, read the exact lines to confirm the context.
-4. Report: call submit_report once.
+4. Review: go back over everything you saw before submitting. For each suspicious fact in your tool results (a \
+literal credential assignment, debug mode enabled, a tracked env file, a gate that can never fail, tests that CI \
+never runs) either report it or have a concrete reason it is a placeholder, a test fixture or an acceptable \
+alternative. Do not stay silent about something you saw and did not explain away.
+5. Report: call submit_report once.
 You have at most {max_steps} model turns. Be efficient: batch independent tool calls in one turn (up to 8), do \
 not re-read files you have already seen, and stop investigating when additional calls are unlikely to change your \
 findings. A typical audit needs 6 to 12 turns.
@@ -42,10 +46,14 @@ problems you actually saw (bare `except:` swallowing errors, dead or duplicated 
 - ci: GitHub Actions problems. Triggers that do not cover pull requests or the default branch where validation is intended; \
 ineffective gates (`continue-on-error: true` on test/lint steps, `|| true`, `if: false`); skipped validation \
 (workflow has no test/lint/build step although the project has them); unpinned third-party actions.
-- security: hardcoded credentials or tokens; committed private keys; workflow `permissions` that are missing where \
+- security: hardcoded credentials or tokens. A literal string assigned to a secret-named variable (SECRET_KEY, \
+PASSWORD, TOKEN, API_KEY, and so on) in application or configuration code is a hardcoded credential: the search or \
+read result showing it, usually as [REDACTED:...], is itself the confirmation. Report it (SEC-001, high, or critical \
+for a cloud or API key that looks live); you do not need proof that it is in use. Values read from the environment, \
+obvious placeholders and test fixtures are not credentials. Also: committed private keys; workflow `permissions` that are missing where \
 write access is clearly used, or overly broad (`write-all`); untrusted event data interpolated into `run` scripts; \
-`pull_request_target` combined with checkout of the pull request head; disabled TLS verification; debug mode in \
-production config.
+`pull_request_target` combined with checkout of the pull request head; disabled TLS verification; debug mode \
+enabled (for example `DEBUG = True`) in the main application's settings or configuration (SEC-006, medium).
 - configuration: machine-specific absolute paths (C:\\Users\\..., /home/<user>/..., /Users/...); committed local \
 settings or env files; no separation between development and production settings (hardcoded endpoints/credentials \
 per environment).

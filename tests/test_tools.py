@@ -268,3 +268,11 @@ def test_read_file_always_returns_at_least_one_line(repo, monkeypatch):
     monkeypatch.setattr(tools, "MAX_READ_CHARS", 1)
     (repo.root / "one.txt").write_text("a\nb\n")
     assert "    1| a" in repo.read_file("one.txt")
+
+
+def test_redaction_adds_an_explanatory_note_only_when_something_was_redacted(repo):
+    with_secret = repo.execute("read_file", {"path": "app.py"})
+    assert "[REDACTED:aws-access-key]" in with_secret and "hardcoded credential" in with_secret
+    assert with_secret.count("[note: [REDACTED:...]") == 1
+    clean = repo.execute("read_file", {"path": "README.md"})
+    assert "[note:" not in clean

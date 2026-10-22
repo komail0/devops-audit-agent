@@ -65,7 +65,7 @@ def test_partially_valid_refs_are_enough(root):
     assert len(report["violations"]) == 1
 
 
-@pytest.mark.parametrize("field", ["rule_id", "description", "evidence", "recommendation"])
+@pytest.mark.parametrize("field", ["description", "evidence", "recommendation"])
 @pytest.mark.parametrize("bad", [None, "", "   ", 5])
 def test_missing_text_fields_drop_the_violation(root, field, bad):
     report, notes = build(root, violation(**{field: bad}))
@@ -219,3 +219,39 @@ def test_write_failure_cleans_up_and_keeps_original(tmp_path):
 def test_write_to_missing_directory_raises(tmp_path):
     with pytest.raises(OSError):
         write_report(tmp_path / "nope" / "report.json", {"repository": URL, "violations": []})
+
+
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        ("SEC-001", "SEC-001"),
+        ("sec-001", "SEC-001"),
+        ("SEC-1", "SEC-001"),
+        ("sec - 12", "SEC-012"),
+        ("HYG-003,SEVERITY:", "HYG-003"),
+        ("Rule SEC-002: hardcoded", "SEC-002"),
+        ("Hardcoded credential", "SEC-099"),
+        ("", "SEC-099"),
+        (None, "SEC-099"),
+        (42, "SEC-099"),
+    ],
+)
+def test_rule_ids_are_normalised_to_prefix_dash_number(root, given, expected):
+    report, _ = build(root, violation(rule_id=given))
+    assert report["violations"][0]["rule_id"] == expected
+
+
+def test_rule_id_fallback_uses_the_category_prefix(root):
+    report, notes = build(root, violation(rule_id=None, category="CI/CD"))
+    assert report["violations"][0]["rule_id"] == "CI-099"
+    assert any("normalised to CI-099" in n for n in notes)
+
+
+def test_valid_rule_id_produces_no_note(root):
+    assert build(root, violation(rule_id="SEC-001"))[1] == []
+
+
+def test_every_category_has_a_prefix():
+    from devops_agent.schema import CATEGORIES, CATEGORY_PREFIXES
+
+    assert set(CATEGORY_PREFIXES) == set(CATEGORIES)

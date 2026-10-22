@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from devops_agent.redact import redact_object
-from devops_agent.schema import CATEGORIES, SEVERITIES, SUBMIT_REPORT, VIOLATION_FIELDS
+from devops_agent.schema import CATEGORIES, CATEGORY_PREFIXES, SEVERITIES, SUBMIT_REPORT, VIOLATION_FIELDS
 
 MAX_DESCRIPTION_CHARS = 300
 MAX_EVIDENCE_CHARS = 600
@@ -39,6 +39,20 @@ _SEVERITY_RANK = {name: rank for rank, name in enumerate(SEVERITIES)}
 
 def _normalise_token(value: Any) -> str:
     return re.sub(r"[\s/&-]+", "_", str(value).strip().lower())
+
+
+_RULE_ID = re.compile(r"([A-Za-z]{2,6})\s*-\s*(\d{1,4})")
+
+
+def _clean_rule_id(value: Any, category: str) -> Tuple[str, bool]:
+    """Return (PREFIX-NNN, changed). Garbled or missing ids fall back to the category's catch-all PREFIX-099."""
+    raw = value.strip() if isinstance(value, str) else ""
+    match = _RULE_ID.search(raw)
+    if match:
+        cleaned = f"{match.group(1).upper()}-{int(match.group(2)):03d}"
+    else:
+        cleaned = f"{CATEGORY_PREFIXES[category]}-099"
+    return cleaned, cleaned != raw.upper()
 
 
 def _text(value: Any, limit: int) -> Optional[str]:
@@ -126,11 +140,10 @@ def build_report(
         if not isinstance(raw, dict):
             notes.append(f"dropped {label}: not an object")
             continue
-        rule_id = _text(raw.get("rule_id"), 40)
         description = _text(raw.get("description"), MAX_DESCRIPTION_CHARS)
         evidence = _text(raw.get("evidence"), MAX_EVIDENCE_CHARS)
         recommendation = _text(raw.get("recommendation"), MAX_RECOMMENDATION_CHARS)
-        missing = [n for n, v in (("rule_id", rule_id), ("description", description), ("evidence", evidence),
+        missing = [n for n, v in (("description", description), ("evidence", evidence),
                                   ("recommendation", recommendation)) if v is None]
         if missing:
             notes.append(f"dropped {label}: missing or empty {', '.join(missing)}")
@@ -141,11 +154,14 @@ def build_report(
         severity = _normalise_token(raw.get("severity", ""))
         severity = _SEVERITY_ALIASES.get(severity, severity)
         if category not in CATEGORIES:
-            notes.append(f"dropped {label} ({rule_id}): unknown category {raw.get('category')!r}")
+            notes.append(f"dropped {label}: unknown category {raw.get('category')!r}")
             continue
         if severity not in SEVERITIES:
-            notes.append(f"dropped {label} ({rule_id}): unknown severity {raw.get('severity')!r}")
+            notes.append(f"dropped {label}: unknown severity {raw.get('severity')!r}")
             continue
+        rule_id, rule_changed = _clean_rule_id(raw.get("rule_id"), category)
+        if rule_changed:
+            notes.append(f"{label}: rule_id {raw.get('rule_id')!r} normalised to {rule_id}")
 
         if not _valid_refs(raw.get("evidence_refs"), executed_steps):
             notes.append(f"dropped {label} ({rule_id}): no valid evidence_refs pointing at executed tool calls")
@@ -159,7 +175,7 @@ def build_report(
             notes.append(f"{label} ({rule_id}): line {raw.get('line')!r} is outside the file; line cleared")
 
         violation = {
-            "rule_id": rule_id.upper(),
+            "rule_id": rule_id,
             "category": category,
             "severity": severity,
             "file": file,

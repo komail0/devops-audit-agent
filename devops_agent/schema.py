@@ -14,6 +14,17 @@ CATEGORIES = (
     "collaboration",
     "build",
 )
+CATEGORY_PREFIXES = {
+    "hygiene": "HYG",
+    "dependencies": "DEP",
+    "code_quality": "QUAL",
+    "testing": "TEST",
+    "ci": "CI",
+    "security": "SEC",
+    "configuration": "CFG",
+    "collaboration": "COLLAB",
+    "build": "BUILD",
+}
 VIOLATION_FIELDS = (
     "rule_id",
     "category",
