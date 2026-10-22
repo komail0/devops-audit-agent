@@ -11,6 +11,10 @@ STRIPE = "sk_live_" + "abcdefghijklmnop1234"
 OPENAI = "sk-" + "abcdefghijklmnopqrstuvwx"
 JWT = "eyJhbGciOiJI.eyJzdWIiOiIx.SflKxwRJSMeKKF2QT4"
 PASSWORD = "Sup3rS3cretPw!"
+# PEM markers are assembled at runtime so the repository holds no private-key-shaped text.
+BEGIN_RSA = "-----BEGIN RSA " + "PRIVATE KEY-----"
+END_RSA = "-----END RSA " + "PRIVATE KEY-----"
+BEGIN_PLAIN = "-----BEGIN " + "PRIVATE KEY-----"
 
 
 @pytest.mark.parametrize(
@@ -32,14 +36,14 @@ def test_known_token_formats(secret, kind):
 
 
 def test_private_key_block_removed_including_body():
-    block = "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc123\nxyz789\n-----END RSA PRIVATE KEY-----"
+    block = BEGIN_RSA + "\nMIIEabc123\nxyz789\n" + END_RSA
     out = redact(f"before\n{block}\nafter")
     assert "MIIEabc123" not in out and "xyz789" not in out
     assert "before" in out and "after" in out
 
 
 def test_truncated_private_key_still_redacted():
-    out = redact("-----BEGIN PRIVATE KEY-----\nMIIEabc123")
+    out = redact(BEGIN_PLAIN + "\nMIIEabc123")
     assert "MIIEabc123" not in out
 
 

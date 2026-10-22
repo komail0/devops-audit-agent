@@ -98,7 +98,7 @@ def test_context_chars_default_override_and_validation():
     "key, host, model_fragment",
     [
         ("sk-abcdefghijklmnop", "api.openai.com", "gpt"),
-        ("AIzaSyAbcdefghijklmnopqrstuvwxyz0123456", "generativelanguage.googleapis.com", "gemini"),
+        ("AIza" + "SyAbcdefghijklmnopqrstuvwxyz0123456", "generativelanguage.googleapis.com", "gemini"),
         ("AQ.Ab8RN6abcdefghijklmnop", "generativelanguage.googleapis.com", "gemini"),
         ("gsk_abcdefghijklmnopqrstuvwx", "api.groq.com", "gpt-oss"),
         ("sk-ant-abcdefghijklmnop", "api.anthropic.com", "claude"),
