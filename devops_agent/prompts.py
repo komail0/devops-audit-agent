@@ -22,9 +22,10 @@ structure, read_file for line numbers).
 flags; git_status and git_log for tracked junk or committed secrets.
 3. Verify: report only what a tool result shows. Read the exact lines of anything suspicious.
 4. Review: go back over everything you saw before submitting. For each suspicious fact in your results (a literal \
-credential assignment, debug mode enabled, a tracked env file, a gate that can never fail, tests CI never runs) \
-either report it or have a concrete reason it is a placeholder, a test fixture or an acceptable alternative. Do not \
-stay silent about something you saw and did not explain away.
+credential assignment, debug mode enabled, a tracked env file, a gate that can never fail, tests CI never runs, or a \
+fact line from parse_workflow such as `|| true`, continue-on-error, pull_request_target, event data interpolated into \
+a script, missing permissions) either report it or have a concrete reason it is a placeholder, a test fixture or an \
+acceptable alternative. Do not stay silent about something you saw and did not explain away.
 5. Report: call submit_report once.
 You have at most {max_steps} model turns. Be efficient: batch independent tool calls in one turn (up to 8), do not \
 re-read files, and stop when more calls are unlikely to change your findings. A typical audit needs 4 to 8 turns.
@@ -70,7 +71,8 @@ credentials under tests/ or fixtures/.
 - Style preferences, commit message style, vendored or generated code.
 - Duplicates: one finding per distinct defect and location. The same kind of defect in different files, or in \
 different steps of a workflow (for example one step with `|| true` and another with `continue-on-error`), is a \
-separate finding each with its own line. Do not merge them, and do not report one defect twice.
+separate finding each with its own line. Do not merge them, and do not report one defect twice: a single tracked \
+.env file is one finding (CFG-002 or SEC-005), not also HYG-003, and one missing .gitignore is one finding.
 A mostly healthy repository should produce few or no findings. An empty list is a valid, expected result.
 
 ## Evidence

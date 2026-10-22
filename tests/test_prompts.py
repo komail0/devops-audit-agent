@@ -77,3 +77,8 @@ def test_prompt_asks_for_separate_findings_per_location(prompt):
 
 def test_prompt_stays_compact_for_small_token_quotas(prompt):
     assert len(prompt) < 11_500  # roughly 2,900 tokens; it is sent with every request
+
+
+def test_prompt_ties_workflow_fact_lines_to_the_review_step_and_forbids_double_reporting_env_files(prompt):
+    assert "fact line from parse_workflow" in prompt
+    assert "not also HYG-003" in prompt

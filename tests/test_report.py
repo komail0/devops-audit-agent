@@ -255,3 +255,14 @@ def test_every_category_has_a_prefix():
     from devops_agent.schema import CATEGORIES, CATEGORY_PREFIXES
 
     assert set(CATEGORY_PREFIXES) == set(CATEGORIES)
+
+
+def test_line_is_cleared_for_binary_files(root):
+    (root / "blob.pyc").write_bytes(b"\x00\x01\x02compiled\nmore\n")
+    item = build(root, violation(file="blob.pyc", line=1))[0]["violations"][0]
+    assert item["file"] == "blob.pyc" and item["line"] is None
+
+
+def test_line_is_kept_for_text_files_with_unusual_encoding(root):
+    (root / "latin.txt").write_bytes("caf\xe9\nsecond\n".encode("latin-1"))
+    assert build(root, violation(file="latin.txt", line=2))[0]["violations"][0]["line"] == 2

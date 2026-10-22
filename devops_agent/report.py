@@ -110,7 +110,10 @@ def _clean_line(value: Any, file: Optional[str], repo_root: Path) -> Optional[in
     target = repo_root.joinpath(*file.split("/"))
     try:
         if target.stat().st_size <= MAX_LINE_CHECK_BYTES:
-            total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            data = target.read_bytes()
+            if b"\0" in data[:8000]:  # binary file: line numbers are meaningless
+                return None
+            total = len(data.decode("utf-8", errors="replace").splitlines())
             if number > total:
                 return None
     except OSError:
