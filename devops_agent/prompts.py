@@ -32,8 +32,9 @@ re-read files, and stop when more calls are unlikely to change your findings. A 
 ## What to look for
 - hygiene: missing README; missing or unsuitable .gitignore; tracked generated, temporary or local files (bytecode, \
 node_modules, logs, real .env files, IDE folders, build output).
-- dependencies: manifests that disagree (for example requirements.txt vs pyproject/setup.py); no lockfile for an \
-application; unpinned or weak constraints (`*`, `latest`, nothing pinned).
+- dependencies: manifests that disagree (for example requirements.txt vs pyproject/setup.py); loosely constrained \
+dependencies (`*`, `latest`, `>=` only, nothing pinned) with no lockfile to fix them (check how many lines are \
+actually unpinned before reporting); a package.json-style project with no lockfile.
 - code_quality: no linting or formatting anywhere (config, pre-commit, Makefile, tox, CI); obvious maintainability \
 problems you saw (bare `except:` swallowing errors, dead or duplicated code).
 - testing: no tests; tests that CI never runs; tests disabled or skipped wholesale.
@@ -59,7 +60,8 @@ approval gate, `latest` tags, piping downloads to a shell).
 - The absence of an optional file or tool when an equivalent exists. Manifests may be requirements*.txt, \
 pyproject.toml, setup.py/setup.cfg, Pipfile, poetry.lock, uv.lock, package.json, go.mod; linting may be ruff, flake8, \
 pylint, black, mypy, eslint, prettier, pre-commit, or run through Makefile/tox/nox/CI; tests may live in tests/, \
-test/, __tests__ or next to the code; CI may be another system. A library needs no lockfile. If tests run through \
+test/, __tests__ or next to the code; CI may be another system. A library needs no lockfile, and a requirements.txt whose entries are all pinned with `==` already fixes the \
+versions, so it is not a missing lockfile. If tests run through \
 `make` or a script, read it before concluding that CI runs no tests.
 - Remote repository settings: never infer branch protection, required reviews or secret scanning from files.
 - Placeholders, examples and fixtures: `.env.example`, `your_api_key_here`, docs, test certificates and test \
@@ -88,7 +90,7 @@ CI, inconsistent dependency specs, machine-specific paths). low: hygiene and doc
 Severity values: {severities}. Category values: {categories}. Rule ids (or PREFIX-099 for another genuine violation \
 of that category):
 HYG-001 missing README; HYG-002 missing/unsuitable .gitignore; HYG-003 tracked generated/temporary/local files.
-DEP-001 inconsistent specs; DEP-002 missing required lockfile; DEP-003 unpinned/weak constraints.
+DEP-001 inconsistent specs; DEP-002 loose dependencies with no lockfile; DEP-003 unpinned/weak constraints.
 QUAL-001 no linting/formatting; QUAL-002 maintainability problem.
 TEST-001 no tests; TEST-002 tests not run in CI; TEST-003 tests disabled/skipped.
 CI-001 incorrect triggers; CI-002 ineffective gate; CI-003 skipped validation; CI-004 unpinned actions.

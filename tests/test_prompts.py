@@ -58,3 +58,8 @@ def test_prompt_treats_visible_literal_secrets_as_confirmed_and_asks_for_a_final
     assert "DEBUG = True" in prompt
     assert "4. Review:" in prompt and "5. Report:" in prompt
     assert "test fixtures are not credentials" in prompt
+
+
+def test_prompt_does_not_call_fully_pinned_requirements_a_missing_lockfile(prompt):
+    assert "all pinned with `==`" in prompt and "not a missing lockfile" in prompt
+    assert "no lockfile for an application" not in prompt
